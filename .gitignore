@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Model files (too large for GitHub)
+model_cache/
+outputs/*.pt
+outputs_10 classes/
+
+# Gradio
+.gradio/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+venv/

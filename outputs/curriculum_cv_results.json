@@ -1,0 +1,81 @@
+{
+  "mean_accuracy": 0.8690577575865688,
+  "std_accuracy": 0.07051436905403287,
+  "fold_results": [
+    {
+      "Fold": 1,
+      "Val Speaker": "F01",
+      "Val Accuracy": 0.875,
+      "Val Loss": 1.222428798675537,
+      "Train Samples": 184,
+      "Val Samples": 8,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 2,
+      "Val Speaker": "F03",
+      "Val Accuracy": 0.8947368421052632,
+      "Val Loss": 0.99008868932724,
+      "Train Samples": 154,
+      "Val Samples": 38,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 3,
+      "Val Speaker": "F04",
+      "Val Accuracy": 0.9,
+      "Val Loss": 0.8767588436603546,
+      "Train Samples": 162,
+      "Val Samples": 30,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 4,
+      "Val Speaker": "M01",
+      "Val Accuracy": 0.8846153846153846,
+      "Val Loss": 1.0080343037843704,
+      "Train Samples": 166,
+      "Val Samples": 26,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 5,
+      "Val Speaker": "M02",
+      "Val Accuracy": 0.84,
+      "Val Loss": 1.0684116892516613,
+      "Train Samples": 167,
+      "Val Samples": 25,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 6,
+      "Val Speaker": "M03",
+      "Val Accuracy": 0.9655172413793104,
+      "Val Loss": 0.7503596693277359,
+      "Train Samples": 163,
+      "Val Samples": 29,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 7,
+      "Val Speaker": "M04",
+      "Val Accuracy": 0.7037037037037037,
+      "Val Loss": 1.1874166280031204,
+      "Train Samples": 165,
+      "Val Samples": 27,
+      "Speaker Type": "Dysarthric"
+    },
+    {
+      "Fold": 8,
+      "Val Speaker": "M05",
+      "Val Accuracy": 0.8888888888888888,
+      "Val Loss": 0.8112174272537231,
+      "Train Samples": 183,
+      "Val Samples": 9,
+      "Speaker Type": "Dysarthric"
+    }
+  ],
+  "phase_a_accuracy": 0.8081081081081081,
+  "phase_b_accuracy": 0.8125,
+  "phase_c_mean_accuracy": 0.8690577575865688
+}
