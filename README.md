@@ -81,7 +81,7 @@ dysarthric-voice-cmds/
 │   └── inference/
 │       └── predictor.py       # Inference wrapper class
 ├── scripts/
-│   └── train.py               # Training script entry point
+│   └── train.py               # 3-phase curriculum learning training script
 ├── outputs/                   # Trained models and results
 ├── model_cache/               # Cached HuBERT weights
 ├── main.ipynb                 # Main training notebook
@@ -121,16 +121,47 @@ Update the `TORGO_ROOT` path in `src/config.py` to point to your TORGO directory
 
 ### 4. Download HuBERT model
 
-The HuBERT model will be automatically downloaded on first run, or you can pre-cache it:
+The HuBERT model will be automatically downloaded via ModelScope on first training run. The model is cached in `model_cache/` for subsequent runs.
+
+Alternatively, you can pre-cache it:
 
 ```python
-from transformers import HubertModel, Wav2Vec2FeatureExtractor
+from modelscope import snapshot_download
 
-model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
-extractor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/hubert-large-ls960-ft")
+model_dir = snapshot_download("facebook/hubert-large-ls960-ft", cache_dir="model_cache")
 ```
 
 ## Quick Start
+
+### Training the Model
+
+```bash
+# Full training (Phase A + B + C with LOSO evaluation)
+python scripts/train.py
+
+# Skip LOSO evaluation for faster training
+python scripts/train.py --skip-phase-c
+
+# Customize training epochs
+python scripts/train.py --epochs-a 10 --epochs-b 10 --epochs-loso 5
+
+# Full options
+python scripts/train.py \
+    --epochs-a 20 \           # Phase A epochs (control pretraining)
+    --epochs-b 20 \           # Phase B epochs (dysarthric fine-tuning)
+    --epochs-loso 10 \        # Phase C LOSO fine-tuning epochs per fold
+    --batch-size 8 \          # Batch size
+    --seed 42 \               # Random seed for reproducibility
+    --skip-phase-c            # Skip LOSO evaluation
+```
+
+**Output artifacts:**
+- `outputs/phase_a_control_pretrained.pt` - Phase A checkpoint
+- `outputs/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
+- `outputs/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C
+- `outputs/curriculum_cv_results.csv` - Cross-validation results
+- `outputs/curriculum_cv_results.json` - JSON format results
+- `outputs/label_mapping.json` - Label encoding
 
 ### Running the Web Interface
 
@@ -195,23 +226,45 @@ The model uses a three-phase curriculum learning approach:
 - Cross-validation leaving one dysarthric speaker out for testing
 - Ensures model generalizes to unseen speakers
 
-### Two-Phase Training (per curriculum phase)
+### Sub-Phase Training (within each curriculum phase)
 
-1. **Warmup Phase** (5 epochs): Train only the classifier head, encoder frozen
-2. **Fine-tuning Phase** (15 epochs): Unfreeze top 4 transformer layers, lower learning rate
+Each curriculum phase uses a two-stage training approach:
+
+1. **Warmup Stage**: Train only the classifier head with encoder frozen
+2. **Fine-tuning Stage**: Unfreeze top N transformer layers with differential learning rates
+
+**Phase A (Control Pretraining):**
+- Warmup: 1/3 of total epochs, classifier only
+- Fine-tune: 2/3 of total epochs, top layers unfrozen
+
+**Phase B (Dysarthric Fine-tuning):**
+- Full fine-tuning with lower learning rates to preserve Phase A knowledge
+
+### Command-Line Arguments
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--epochs-a` | Phase A epochs (control pretraining) | from config |
+| `--epochs-b` | Phase B epochs (dysarthric fine-tuning) | from config |
+| `--epochs-loso` | Phase C LOSO fine-tuning epochs per fold | 10 |
+| `--batch-size` | Training batch size | from config |
+| `--seed` | Random seed for reproducibility | 42 |
+| `--skip-phase-c` | Skip LOSO evaluation | False |
 
 ### Hyperparameters
 
 | Parameter | Value |
 |-----------|-------|
 | Batch size | 8 |
-| Classifier learning rate | 1e-4 |
-| Encoder fine-tune learning rate | 1e-5 |
-| Warmup epochs | 5 |
-| Total epochs | 20 |
+| Control pretraining LR | 1e-4 |
+| Control fine-tune LR | 5e-5 |
+| Dysarthric LR (classifier) | 5e-5 |
+| Dysarthric LR (encoder) | 5e-6 |
+| Weight decay | 0.01 |
 | Unfrozen encoder layers | 4 (top) |
 | Max audio length | 3 seconds |
 | Sample rate | 16kHz |
+| Class weighting | Enabled (balanced) |
 
 See `src/config.py` for all configurable parameters.
 
