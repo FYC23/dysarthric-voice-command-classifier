@@ -18,3 +18,7 @@ outputs_10 classes/
 # Environment
 .env
 venv/
+
+# Hugging Face Spaces
+hf_spaces_package/
+dysarthric-voice-cmds/
