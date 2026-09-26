@@ -1,0 +1,164 @@
+"""
+Speech Commands v0.02 for BC-ResNet pretraining (stage 1): the 36 classes
+(35 words + _silence_), the extracted-word cache, and silence windows.
+
+Waveforms follow the TORGO path so every stage sees the same kind of input:
+extract_word (DC removal + VAD trim), then a random place in the 2 s window
+for training (speech_commands_augment.py) or the centre for evaluation.
+Extracted words are deterministic, so they are cached once as int16 .npy
+files; augmentation stays on the fly.
+Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
+"""
+
+import dataclasses
+import json
+from pathlib import Path
+from typing import List, Tuple
+
+import numpy as np
+import pandas as pd
+import soundfile as sf
+from tqdm.auto import tqdm
+
+from ..audio import DEFAULT_VAD, extract_word, remove_dc
+from ..eval.constants import SPEECH_COMMANDS_V2_WORDS
+
+SILENCE = "_silence_"
+CLASSES: Tuple[str, ...] = tuple(SPEECH_COMMANDS_V2_WORDS) + (SILENCE,)
+SILENCE_ID = CLASSES.index(SILENCE)
+# Bump when the cache layout or extract_word's code changes. The VAD settings
+# (DEFAULT_VAD) are stored in meta.json and checked automatically.
+CACHE_VERSION = 1
+DOWNLOAD_HINT = "run scripts/download_speech_commands.sh"
+_INT16_SCALE = 32767
+_META = "meta.json"  # written last: its presence marks a complete cache
+
+
+def read_wav(path: Path, sr: int) -> np.ndarray:
+    """Mono float32 audio; the file must already be at `sr`."""
+    audio, file_sr = sf.read(path, dtype="float32", always_2d=True)
+    if file_sr != sr:
+        raise ValueError(f"{path}: sample rate {file_sr}, expected {sr}")
+    return audio[:, 0]
+
+
+def scan_split(root: Path, split: str) -> pd.DataFrame:
+    """One row per word clip (file_path, label, label_id), in class then path order."""
+    split_dir = Path(root) / split
+    if not split_dir.is_dir():
+        raise FileNotFoundError(f"{split_dir} not found; {DOWNLOAD_HINT}")
+    words = tuple(sorted(d.name for d in split_dir.iterdir()
+                         if d.is_dir() and not d.name.startswith("_")))
+    if words != tuple(SPEECH_COMMANDS_V2_WORDS):
+        missing = sorted(set(SPEECH_COMMANDS_V2_WORDS) - set(words))
+        extra = sorted(set(words) - set(SPEECH_COMMANDS_V2_WORDS))
+        raise ValueError(f"{split_dir}: word folders do not match Speech Commands v0.02 "
+                         f"(missing {missing}, unexpected {extra}); {DOWNLOAD_HINT}")
+    rows = [{"file_path": str(path), "label": word, "label_id": label_id}
+            for label_id, word in enumerate(SPEECH_COMMANDS_V2_WORDS)
+            for path in sorted((split_dir / word).glob("*.wav"))]
+    return pd.DataFrame(rows, columns=["file_path", "label", "label_id"])
+
+
+def word_cache_dir(cache_dir: Path, split: str) -> Path:
+    return Path(cache_dir) / "speech_commands_words" / split
+
+
+def _relative_files(clips: pd.DataFrame, root: Path) -> List[str]:
+    return [str(Path(p).relative_to(root)) for p in clips["file_path"]]
+
+
+def _to_int16(audio: np.ndarray) -> np.ndarray:
+    return np.round(np.clip(audio, -1.0, 1.0) * _INT16_SCALE).astype(np.int16)
+
+
+def _cache_matches(directory: Path, clips: pd.DataFrame, root: Path, sr: int) -> bool:
+    meta_path = directory / _META
+    if not meta_path.exists():
+        return False
+    meta = json.loads(meta_path.read_text())
+    if (meta.get("version") != CACHE_VERSION or meta.get("sample_rate") != sr
+            or meta.get("vad") != dataclasses.asdict(DEFAULT_VAD)):
+        return False
+    return np.load(directory / "files.npy").tolist() == _relative_files(clips, root)
+
+
+def _build_word_cache(clips: pd.DataFrame, root: Path, directory: Path, sr: int) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / _META).unlink(missing_ok=True)  # incomplete until rewritten below
+    words = [_to_int16(extract_word(read_wav(p, sr), sr))
+             for p in tqdm(clips["file_path"], desc=f"Caching words in {directory.name}")]
+    offsets = np.concatenate([[0], np.cumsum([len(w) for w in words])]).astype(np.int64)
+    audio = np.concatenate(words) if words else np.zeros(0, np.int16)
+    np.save(directory / "audio.npy", audio)
+    np.save(directory / "offsets.npy", offsets)
+    np.save(directory / "labels.npy", clips["label_id"].to_numpy(np.int64))
+    np.save(directory / "files.npy", np.array(_relative_files(clips, root)))
+    (directory / _META).write_text(json.dumps(
+        {"version": CACHE_VERSION, "sample_rate": sr, "vad": dataclasses.asdict(DEFAULT_VAD),
+         "count": len(clips)}))
+
+
+def ensure_word_cache(root: Path, split: str, cache_dir: Path, sr: int) -> Path:
+    """The split's word-cache directory, built now if missing, stale or incomplete."""
+    clips = scan_split(root, split)
+    directory = word_cache_dir(cache_dir, split)
+    if not _cache_matches(directory, clips, Path(root), sr):
+        print(f"Building the {split} word cache in {directory} ({len(clips)} clips)")
+        _build_word_cache(clips, Path(root), directory, sr)
+    return directory
+
+
+class WordCache:
+    """
+    The extracted words of one split. The audio is memory-mapped on first use
+    and left out of pickles, so DataLoader workers share it instead of copying
+    ~2 GB each (macOS starts workers by pickling the dataset).
+    """
+
+    def __init__(self, directory: Path):
+        self.directory = Path(directory)
+        self.offsets = np.load(self.directory / "offsets.npy")
+        self.labels = np.load(self.directory / "labels.npy")
+        self._audio = None
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getstate__(self) -> dict:
+        state = dict(self.__dict__)
+        state["_audio"] = None
+        return state
+
+    def word(self, index: int) -> np.ndarray:
+        """Word `index` as a new float32 array."""
+        if self._audio is None:
+            self._audio = np.load(self.directory / "audio.npy", mmap_mode="r")
+        start, end = self.offsets[index], self.offsets[index + 1]
+        return self._audio[start:end].astype(np.float32) / _INT16_SCALE
+
+
+def silence_count(n_words: int) -> int:
+    """Silence examples per epoch: as many as the average word class has."""
+    return int(round(n_words / len(SPEECH_COMMANDS_V2_WORDS)))
+
+
+def silence_eval_windows(root: Path, split: str, length: int, sr: int) -> List[np.ndarray]:
+    """
+    Evaluation _silence_ items that fill the window: long recordings (the
+    validation running_tap) are cut into consecutive windows; short clips (test)
+    are repeated to the window length. No VAD: it would trim noise to bursts.
+    """
+    folder = Path(root) / split / SILENCE
+    paths = sorted(folder.glob("*.wav"))
+    if not paths:
+        raise FileNotFoundError(f"no {SILENCE} clips in {folder}; {DOWNLOAD_HINT}")
+    windows = []
+    for path in paths:
+        audio = remove_dc(read_wav(path, sr)).astype(np.float32)
+        if len(audio) >= length:
+            windows += [audio[s:s + length].copy()
+                        for s in range(0, len(audio) - length + 1, length)]
+        else:
+            windows.append(np.resize(audio, length).astype(np.float32))
+    return windows

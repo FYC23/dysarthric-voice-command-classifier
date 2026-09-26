@@ -90,3 +90,35 @@ def fake_torgo(tmp_path: Path) -> Path:
     (root / "F" / "F01" / "Notes").mkdir(parents=True)
     (root / ".F.partial").mkdir()
     return root
+
+
+def sc_clip(seed: int, sr: int = SR) -> np.ndarray:
+    """A 1 s Speech Commands-style clip: quiet noise with a 0.3 s tone at 0.35 s."""
+    rng = np.random.default_rng(seed)
+    audio = rng.normal(0, 1e-3, sr)
+    t = np.arange(int(0.3 * sr)) / sr
+    start = int(0.35 * sr)
+    audio[start:start + len(t)] += 0.1 * np.sin(2 * np.pi * (200 + 10 * seed) * t)
+    return audio
+
+
+@pytest.fixture
+def fake_speech_commands(tmp_path: Path) -> Path:
+    """
+    A Speech Commands v0.02-shaped tree: every split has all 35 word folders
+    with 2 clips each, plus _silence_ (train: one 3 s noise recording;
+    validation: one 5 s recording; test: two 1 s clips).
+    """
+    from src.eval.constants import SPEECH_COMMANDS_V2_WORDS
+
+    root = tmp_path / "speech_commands_v2"
+    for split in ("train", "validation", "test"):
+        for i, word in enumerate(SPEECH_COMMANDS_V2_WORDS):
+            for n in range(2):
+                write_wav(root / split / word / f"spk{n}_nohash_0.wav", sc_clip(seed=2 * i + n))
+    rng = np.random.default_rng(0)
+    write_wav(root / "train" / "_silence_" / "white_noise.wav", rng.normal(0, 0.05, 3 * SR))
+    write_wav(root / "validation" / "_silence_" / "running_tap.wav", rng.normal(0, 0.05, 5 * SR))
+    for n in range(2):
+        write_wav(root / "test" / "_silence_" / f"silence_{n}.wav", rng.normal(0, 0.05, SR))
+    return root
