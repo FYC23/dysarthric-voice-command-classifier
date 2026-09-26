@@ -48,6 +48,9 @@ def test_strict(transcript, expected):
     ("for ward", "forward"),   # joined tokens beat the "for" -> four homophone
     ("go back", "back"),       # first command token in spoken order
     ("yes no", "yes"),
+    ("Go to the left.", "left"),   # a real command word beats a function-word homophone
+    ("I want to go up", "up"),
+    ("to", "two"),                 # a homophone still counts when nothing else matches
     ("tree", "three"),         # nearest by edit distance
     ("dawn", "down"),
     ("sick", "six"),           # tie six/back at distance 2 -> vocabulary order

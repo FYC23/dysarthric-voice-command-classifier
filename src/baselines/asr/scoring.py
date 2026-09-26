@@ -3,7 +3,7 @@ Turn an open-vocabulary ASR transcript into one of the 20 commands.
 
 strict: the transcript, normalized, is exactly a command; else "oov".
 lenient: a forced choice among the commands, like the classifiers, so the
-    comparison is fair: homophones, then exact token matches, then the
+    comparison is fair: exact command words, then homophones, then the
     nearest command by edit distance. Only an empty transcript is "oov".
 
 Both depend only on the transcript, so rescoring never re-runs a model.
@@ -49,10 +49,13 @@ def lenient_pred(transcript: str) -> str:
     joined = "".join(raw)
     if joined in COMMANDS:
         return joined
+    # A word said as itself beats a homophone: in "go to the left", "to" is a
+    # function word, not "two"
     tokens = [HOMOPHONES.get(t, t) for t in raw]
-    for token in tokens:
-        if token in COMMANDS:
-            return token
+    for candidates in (raw, tokens):
+        for token in candidates:
+            if token in COMMANDS:
+                return token
     return _nearest(tokens + [joined])
 
 
