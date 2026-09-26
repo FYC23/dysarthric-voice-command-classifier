@@ -7,7 +7,7 @@ Hyperparameters are fixed (src/training/bcresnet_recipe.py); last epoch kept.
 Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence, Tuple
 
@@ -82,9 +82,11 @@ def _load_pretrained(job: FinetuneJob) -> BCResNet:
     return model.to(job.device)
 
 
-def _save(model: BCResNet, path: Path, job: FinetuneJob) -> None:
+def _save(model: BCResNet, path: Path, job: FinetuneJob, stages: Sequence[SgdStage]) -> None:
+    """Weights plus what produced them: width, seed, classes, source and every stage run."""
     torch.save({"model_state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
-                "tau": float(job.tau), "seed": job.seed, "classes": list(TORGO_CLASSES)}, path)
+                "tau": float(job.tau), "seed": job.seed, "classes": list(TORGO_CLASSES),
+                "pretrained": str(job.pretrained), "stages": [asdict(s) for s in stages]}, path)
 
 
 def _load(path: Path, job: FinetuneJob) -> BCResNet:
@@ -132,7 +134,8 @@ def run_finetuning(job: FinetuneJob, samples: pd.DataFrame) -> Run:
     print(f"Stage 2: {controls['speaker_id'].nunique()} control speakers, {len(controls)} clips")
     model = _load_pretrained(job)
     _train(model, controls, job.control_stages, job, noise, generator)
-    _save(model, out_dir / CONTROLS_CHECKPOINT, job)
+    _save(model, out_dir / CONTROLS_CHECKPOINT, job, job.control_stages)
+    dysarthric_stages = (*job.control_stages, job.dysarthric_stage)
 
     frames, fold_train = [], {}
     for i, speaker in enumerate(sorted(dysarthric["speaker_id"].unique()), start=1):
@@ -140,14 +143,14 @@ def run_finetuning(job: FinetuneJob, samples: pd.DataFrame) -> Run:
         print(f"Stage 3, fold {i} (hold out {speaker}): {len(train_df)} training clips")
         model = _load(out_dir / CONTROLS_CHECKPOINT, job)
         _train(model, train_df, (job.dysarthric_stage,), job, noise, generator)
-        _save(model, out_dir / f"fold{i}_{speaker}.pt", job)
+        _save(model, out_dir / f"fold{i}_{speaker}.pt", job, dysarthric_stages)
         frames.append(_predict_fold(model, test_df, job))
         fold_train[speaker] = frozenset(train_df["speaker_id"])
 
     print(f"Deploy model: all {dysarthric['speaker_id'].nunique()} dysarthric speakers")
     model = _load(out_dir / CONTROLS_CHECKPOINT, job)
     _train(model, dysarthric, (job.dysarthric_stage,), job, noise, generator)
-    _save(model, out_dir / DEPLOY_CHECKPOINT, job)
+    _save(model, out_dir / DEPLOY_CHECKPOINT, job, dysarthric_stages)
 
     eval_dir = save_loso_run(frames, fold_train, sorted(controls["speaker_id"].unique()),
                              job.seed, run_name(job.tau), out_dir / EVAL_DIR)

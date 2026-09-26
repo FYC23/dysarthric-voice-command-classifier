@@ -1,7 +1,7 @@
 """Stages 2-3: TORGO control stage, dysarthric LOSO folds, deploy model, eval run."""
 
 import importlib.util
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +78,12 @@ def test_finetuning_writes_every_checkpoint_and_a_valid_run(small_torgo, tmp_pat
     assert load_run(out / EVAL_DIR).model == "bcresnet-1"
     deploy = torch.load(out / DEPLOY_CHECKPOINT)
     assert deploy["classes"] == list(TORGO_CLASSES) and deploy["tau"] == 1.0
+    assert deploy["stages"] == [asdict(s) for s in (HEAD, FULL, FULL)]
+    assert deploy["pretrained"] == str(tmp_path / "pretrain_tau1.pt")
+    controls = torch.load(out / CONTROLS_CHECKPOINT)
+    assert controls["stages"] == [asdict(s) for s in (HEAD, FULL)]
+    fold = torch.load(out / "fold7_M04.pt")
+    assert fold["stages"] == [asdict(s) for s in (HEAD, FULL, FULL)]
 
 
 def test_pretrained_checkpoint_of_another_width_is_refused(small_torgo, tmp_path):
