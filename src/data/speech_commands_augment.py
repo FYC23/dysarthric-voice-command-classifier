@@ -10,6 +10,8 @@ Reference-code details kept on purpose:
 - the shifted-out part is zero-filled;
 - the _silence_ class is noise at amplitude U(0, 1) on an empty clip;
 - the result is clamped to [-1, 1].
+`augment_command` is the reference 1 s view; `augment_word_in_window` is the
+2 s view our pretraining uses (docs/superpowers/specs/2026-09-26-bcresnet-training-design.md).
 SpecAugment on the log-Mel is in src/model/frontend.py.
 """
 
@@ -18,6 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .noise import NoiseBank
+from .torgo_augment import place_in_window
 
 
 @dataclass(frozen=True)
@@ -61,3 +64,20 @@ def make_silence(length: int, rng: np.random.Generator, noise: NoiseBank,
     """A _silence_ training example: background noise at a random level."""
     amp = rng.uniform(0.0, params.max_silence_noise_amp)
     return np.clip(amp * noise.sample(length, rng), -1.0, 1.0).astype(np.float32)
+
+
+def augment_word_in_window(word: np.ndarray, length: int, rng: np.random.Generator,
+                           noise: NoiseBank,
+                           params: BCResNetAugParams = DEFAULT_BCRESNET_AUG) -> np.ndarray:
+    """
+    Our 2 s training view of an extracted Speech Commands word. The word goes
+    at a uniformly random offset in the window, always (this replaces the
+    paper's +-100 ms shift). Then, with probability noise_prob, the paper's
+    noise (amplitude U(0, max_noise_amp)) is added over the whole window, so
+    the padding is never a noise-free giveaway, and the result is clamped.
+    """
+    window = place_in_window(word, length, rng)
+    if rng.random() >= params.noise_prob:
+        return window
+    amp = rng.uniform(0.0, params.max_noise_amp)
+    return np.clip(window + amp * noise.sample(length, rng), -1.0, 1.0).astype(np.float32)
