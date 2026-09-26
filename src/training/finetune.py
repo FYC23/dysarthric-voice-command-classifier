@@ -106,6 +106,7 @@ def _train(model: BCResNet, df: pd.DataFrame, stages: Sequence[SgdStage], job: F
     for stage in stages:
         loader = DataLoader(dataset, batch_size=stage.batch_size, shuffle=True,
                             drop_last=stage.drop_last, num_workers=job.num_workers,
+                            persistent_workers=job.num_workers > 0,
                             collate_fn=collate_fn, generator=generator)
         history = run_stage(model, stage, loader, logmel, spec, job.device, generator,
                             weights if stage.class_weighted else None)

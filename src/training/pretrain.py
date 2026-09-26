@@ -61,17 +61,19 @@ def _loaders(job: PretrainJob) -> Tuple[DataLoader, DataLoader, DataLoader]:
     train_set = SpeechCommandsTrainSet(words["train"], noise, WINDOW_SAMPLES,
                                        silence_count(len(words["train"])))
 
-    def eval_loader(split: str) -> DataLoader:
+    def eval_loader(split: str, persistent: bool) -> DataLoader:
         silence = silence_eval_windows(job.sc_root, split, WINDOW_SAMPLES, SAMPLE_RATE)
         return DataLoader(SpeechCommandsEvalSet(words[split], silence, WINDOW_SAMPLES),
                           batch_size=EVAL_BATCH_SIZE, shuffle=False,
-                          num_workers=job.num_workers)
+                          num_workers=job.num_workers,
+                          persistent_workers=persistent and job.num_workers > 0)
 
     train_loader = DataLoader(train_set, batch_size=job.stage.batch_size, shuffle=True,
                               drop_last=job.stage.drop_last, num_workers=job.num_workers,
                               persistent_workers=job.num_workers > 0,
                               generator=torch.Generator().manual_seed(job.seed))
-    return train_loader, eval_loader("validation"), eval_loader("test")
+    # Validation runs every epoch, so its workers persist; the test split is scored once.
+    return train_loader, eval_loader("validation", True), eval_loader("test", False)
 
 
 def _accuracy(preds: np.ndarray, labels: np.ndarray) -> float:
@@ -83,16 +85,28 @@ def _fresh_progress() -> dict:
             "history": []}
 
 
+def _existing(job: PretrainJob, names: Tuple[str, ...]) -> list:
+    return [Path(job.out_dir) / name for name in names if (Path(job.out_dir) / name).exists()]
+
+
 def _refuse_overwrite(job: PretrainJob) -> None:
-    """Without resume, an existing run (finished or not) is never overwritten."""
-    if job.resume:
+    """
+    An existing run is never overwritten: without resume, any run (finished or
+    not); with resume but no last checkpoint to resume from, a finished one.
+    """
+    if not job.resume:
+        existing = _existing(job, (BEST_CHECKPOINT, LAST_CHECKPOINT, METRICS_FILE))
+        if existing:
+            raise FileExistsError(f"{existing[0]} exists; pass --resume to continue that run, "
+                                  "or choose another --out-dir")
         return
-    existing = [Path(job.out_dir) / name
-                for name in (BEST_CHECKPOINT, LAST_CHECKPOINT, METRICS_FILE)
-                if (Path(job.out_dir) / name).exists()]
-    if existing:
-        raise FileExistsError(f"{existing[0]} exists; pass --resume to continue that run, "
-                              "or choose another --out-dir")
+    if (Path(job.out_dir) / LAST_CHECKPOINT).exists():
+        return
+    finished = _existing(job, (BEST_CHECKPOINT, METRICS_FILE))
+    if finished:
+        raise FileExistsError(f"{finished[0]} is from a finished run, but there is no "
+                              f"{LAST_CHECKPOINT} to resume from (no resume point); choose "
+                              "another --out-dir, or remove the finished run's files")
 
 
 def _resume(job, model, optimizer, scheduler, generator) -> dict:

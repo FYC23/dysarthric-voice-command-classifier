@@ -10,7 +10,7 @@ import torch
 from src.data.speech_commands import CLASSES
 from src.training.bcresnet_recipe import PRETRAIN, SgdStage, seed_dir
 from src.training.pretrain import (
-    BEST_CHECKPOINT, LAST_CHECKPOINT, METRICS_FILE, PretrainJob, run_pretraining,
+    BEST_CHECKPOINT, LAST_CHECKPOINT, METRICS_FILE, PretrainJob, _loaders, run_pretraining,
 )
 
 TINY = SgdStage(epochs=2, peak_lr=0.05, warmup_epochs=1, batch_size=16)
@@ -71,6 +71,26 @@ def test_finished_run_without_last_checkpoint_refuses_to_overwrite(
         run_pretraining(make_job(fake_speech_commands, tmp_path))
     assert (out / BEST_CHECKPOINT).read_bytes() == b"finished run"
     assert not (tmp_path / "cache").exists()  # refused before building the word caches
+
+
+def test_resume_without_last_checkpoint_refuses_to_overwrite_a_finished_run(
+        fake_speech_commands, tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    (out / BEST_CHECKPOINT).write_bytes(b"finished run")
+    with pytest.raises(FileExistsError, match="no resume point"):
+        run_pretraining(make_job(fake_speech_commands, tmp_path, resume=True))
+    assert (out / BEST_CHECKPOINT).read_bytes() == b"finished run"
+    assert not (tmp_path / "cache").exists()  # refused before building the word caches
+
+
+@pytest.mark.parametrize("num_workers", [0, 2])
+def test_per_epoch_loaders_keep_their_workers(fake_speech_commands, tmp_path, num_workers):
+    # Building a DataLoader starts no workers; only iterating it would.
+    train, val, test = _loaders(make_job(fake_speech_commands, tmp_path,
+                                         num_workers=num_workers))
+    assert train.persistent_workers == val.persistent_workers == (num_workers > 0)
+    assert not test.persistent_workers  # scored once
 
 
 def test_resume_refuses_another_width(fake_speech_commands, tmp_path):

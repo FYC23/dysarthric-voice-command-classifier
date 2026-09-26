@@ -9,7 +9,9 @@ import pytest
 import torch
 
 from conftest import SR, add_utterance, word_clip, write_wav
+import src.training.finetune as finetune
 from src.config import Config
+from src.data.noise import NoiseBank
 from src.data.preprocessing import scan_torgo_dataset
 from src.data.speech_commands import CLASSES
 from src.eval.constants import DYSARTHRIC_SPEAKERS
@@ -84,6 +86,44 @@ def test_finetuning_writes_every_checkpoint_and_a_valid_run(small_torgo, tmp_pat
     assert controls["stages"] == [asdict(s) for s in (HEAD, FULL)]
     fold = torch.load(out / "fold7_M04.pt")
     assert fold["stages"] == [asdict(s) for s in (HEAD, FULL, FULL)]
+
+
+def test_control_stage_and_folds_train_on_the_right_speakers(small_torgo, tmp_path,
+                                                             monkeypatch):
+    calls = []
+    train = finetune._train
+
+    def spy(model, df, stages, *args):
+        calls.append((frozenset(df["speaker_id"]), tuple(stages)))
+        return train(model, df, stages, *args)
+
+    monkeypatch.setattr(finetune, "_train", spy)
+    job = make_job(tmp_path)
+    run_finetuning(job, small_torgo)
+    control_calls = [speakers for speakers, stages in calls if stages == job.control_stages]
+    assert control_calls == [frozenset({"FC01"})]
+    fold_calls = [speakers for speakers, stages in calls if stages == (job.dysarthric_stage,)]
+    assert len(fold_calls) == len(DYSARTHRIC_SPEAKERS) + 1  # 8 folds, then the deploy model
+    for held_out, speakers in zip(sorted(DYSARTHRIC_SPEAKERS), fold_calls):
+        assert speakers == set(DYSARTHRIC_SPEAKERS) - {held_out}
+    assert fold_calls[-1] == set(DYSARTHRIC_SPEAKERS)
+
+
+@pytest.mark.parametrize("num_workers", [0, 2])
+def test_training_workers_persist_across_epochs(small_torgo, tmp_path, monkeypatch,
+                                                num_workers):
+    loaders = []
+
+    def fake_stage(model, stage, loader, *args):
+        loaders.append(loader)  # never iterated, so no worker is started
+        return [{"loss": 0.0, "acc": 0.0}]
+
+    monkeypatch.setattr(finetune, "run_stage", fake_stage)
+    job = make_job(tmp_path, num_workers=num_workers)
+    finetune._train(BCResNet(1, len(TORGO_CLASSES)), finetune._with_label_ids(small_torgo),
+                    job.control_stages, job, NoiseBank.from_dir(job.noise_dir, SR),
+                    torch.Generator().manual_seed(0))
+    assert [loader.persistent_workers for loader in loaders] == [num_workers > 0] * 2
 
 
 def test_pretrained_checkpoint_of_another_width_is_refused(small_torgo, tmp_path):
