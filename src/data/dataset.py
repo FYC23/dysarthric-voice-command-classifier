@@ -1,8 +1,11 @@
 """
 PyTorch Dataset for TORGO dysarthric voice commands.
+
+Evaluation items (augment=False) are prepare_waveform output, unchanged.
+Training items (augment=True) are a fresh random view of the word on every
+access (src/data/torgo_augment.py). Nothing augmented is written to disk.
 """
 
-import random
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -12,39 +15,49 @@ from torch.utils.data import Dataset
 import librosa
 from transformers import Wav2Vec2FeatureExtractor
 
-from ..audio import fit_to_length, prepare_waveform
-from .augmentation import create_augmentation_pipeline, apply_spec_augment
+from ..audio import extract_word, prepare_waveform
+from .noise import NoiseBank
+from .torgo_augment import DEFAULT_TORGO_AUG, TorgoAugParams, augment_word
 
 
 class TORGOCommandDataset(Dataset):
     """
-    PyTorch Dataset for TORGO dysarthric voice commands with advanced augmentation.
+    PyTorch Dataset for TORGO dysarthric voice commands.
+
+    feature_extractor: HuBERT's Wav2Vec2FeatureExtractor, or None to return the
+        raw float32 window (BC-ResNet computes log-Mel on the batch).
+    noise: background-noise bank; required when augment=True and the recipe
+        adds noise.
     """
-    
+
     def __init__(
         self,
         df: pd.DataFrame,
-        feature_extractor: Wav2Vec2FeatureExtractor,
+        feature_extractor: Optional[Wav2Vec2FeatureExtractor],
         config,
         max_length: int = 24000,
         target_sr: int = 16000,
-        augment: bool = False
+        augment: bool = False,
+        noise: Optional[NoiseBank] = None,
+        aug_params: TorgoAugParams = DEFAULT_TORGO_AUG,
     ):
+        if augment and aug_params.noise_prob > 0 and noise is None:
+            raise ValueError("augment=True needs a NoiseBank, e.g. "
+                             "NoiseBank.from_dir(config.NOISE_DIR, config.SAMPLE_RATE)")
         self.df = df.reset_index(drop=True)
         self.feature_extractor = feature_extractor
         self.config = config
         self.max_length = max_length
         self.target_sr = target_sr
         self.augment = augment
-        
-        if augment:
-            self.augmentation_pipeline = create_augmentation_pipeline(config)
-        else:
-            self.augmentation_pipeline = None
-        
+        self.noise = noise
+        self.aug_params = aug_params
+        self._rng: Optional[np.random.Generator] = None
+        self._rng_seed: Optional[int] = None
+
     def __len__(self) -> int:
         return len(self.df)
-    
+
     def load_audio(self, file_path: str) -> np.ndarray:
         """Load audio file and resample to target sample rate."""
         try:
@@ -53,7 +66,7 @@ class TORGOCommandDataset(Dataset):
         except Exception as e:
             print(f"Error loading {file_path}: {e}")
             return np.zeros(self.max_length, dtype=np.float32)
-    
+
     @staticmethod
     def segment_of(row: pd.Series) -> Optional[Tuple[float, float]]:
         """Hand-labelled word location (see src/data/segments.py), if the row has one."""
@@ -62,42 +75,40 @@ class TORGOCommandDataset(Dataset):
             return None
         return float(start), float(end)
 
-    def pad_or_truncate(self, audio: np.ndarray) -> np.ndarray:
-        """Ensure audio is exactly max_length samples (centre-pad or loudest window)."""
-        return fit_to_length(audio, self.max_length)
-    
-    def apply_augmentation(self, audio: np.ndarray) -> np.ndarray:
-        """Apply comprehensive data augmentation pipeline."""
-        if not self.augment or self.augmentation_pipeline is None:
-            return audio
-        
-        audio = audio.astype(np.float32)
-        audio = self.augmentation_pipeline(samples=audio, sample_rate=self.target_sr)
-        
-        if random.random() < 0.5:
-            audio = apply_spec_augment(audio, self.config)
-        
-        return audio
-    
+    def _get_rng(self) -> np.random.Generator:
+        """
+        One generator per process, seeded from torch. DataLoader workers each
+        have their own torch seed (and a new one every epoch), so a generator
+        copied in from the main process is replaced, not reused. With
+        num_workers=0, set_seed() makes the augmentation reproducible.
+        """
+        seed = torch.initial_seed()
+        if self._rng is None or self._rng_seed != seed:
+            self._rng = np.random.default_rng(seed % 2**32)
+            self._rng_seed = seed
+        return self._rng
+
+    def _featurize(self, audio: np.ndarray) -> torch.Tensor:
+        if self.feature_extractor is None:
+            return torch.from_numpy(audio)
+        inputs = self.feature_extractor(
+            audio, sampling_rate=self.target_sr, return_tensors="pt", padding=False
+        )
+        return inputs.input_values.squeeze(0)
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         row = self.df.iloc[idx]
-        
         audio = self.load_audio(row['file_path'])
-        audio = prepare_waveform(audio, self.target_sr, self.max_length, segment=self.segment_of(row))
-        audio = self.apply_augmentation(audio)
-        audio = self.pad_or_truncate(audio)  # time stretch changes the length
-        
-        inputs = self.feature_extractor(
-            audio,
-            sampling_rate=self.target_sr,
-            return_tensors="pt",
-            padding=False
-        )
-        
-        input_values = inputs.input_values.squeeze(0)
-        
+        segment = self.segment_of(row)
+        if self.augment:
+            word = extract_word(audio, self.target_sr, segment=segment)
+            audio = augment_word(word, self.max_length, self._get_rng(), self.noise,
+                                 self.aug_params)
+        else:
+            audio = prepare_waveform(audio, self.target_sr, self.max_length, segment=segment)
+
         return {
-            'input_values': input_values,
+            'input_values': self._featurize(audio),
             'label': torch.tensor(row['label_id'], dtype=torch.long),
             'speaker_id': row['speaker_id'],
             'file_path': row['file_path']
@@ -108,7 +119,7 @@ def collate_fn(batch: List[Dict]) -> Dict[str, torch.Tensor]:
     """Custom collate function for DataLoader."""
     input_values = torch.stack([item['input_values'] for item in batch])
     labels = torch.stack([item['label'] for item in batch])
-    
+
     return {
         'input_values': input_values,
         'labels': labels,

@@ -108,7 +108,6 @@ For development (adds pytest), install `requirements-dev.txt` instead and run th
 - librosa
 - scikit-learn
 - pandas, matplotlib, seaborn
-- audiomentations
 
 ### 3. Download the TORGO dataset
 
@@ -245,19 +244,21 @@ The [TORGO database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.htm
 
 ## Data Augmentation
 
-The training pipeline applies several augmentation techniques to improve robustness:
+Training only, generated on the fly; validation and test audio is never
+augmented. Rationale: `docs/superpowers/specs/2026-09-25-data-augmentation-design.md`.
 
-**Time-domain augmentations** (using audiomentations):
-- Gaussian noise injection
-- Pitch shifting (±2 semitones)
-- Time stretching (0.9x - 1.1x)
-- Time shifting (±20%)
-- Gain adjustment (±6 dB)
+**TORGO (HuBERT and BC-ResNet)**, applied to the extracted word:
+- Speed perturbation, factor from {0.9, 0.95, 1.0, 1.05, 1.1}
+- Random position within the 2 s window (the word is never cut)
+- Background noise with probability 0.8 at 5–20 dB SNR
+- Gain ±6 dB
 
-**SpecAugment-style augmentation:**
-- Time masking (zeros out random time segments)
+BC-ResNet also gets SpecAugment on its log-Mel features; HuBERT already masks
+time spans internally. **Speech Commands (BC-ResNet)** follows the BC-ResNet
+paper: ±100 ms shift and noise with probability 0.8, SpecAugment by width.
 
-All augmentation parameters are configurable in `src/config.py`.
+Training needs the noise recordings in `data/raw/speech_commands_v2/train/_silence_/`
+(from `scripts/download_speech_commands.sh`, or copy just those 5 files).
 
 ## Model Architecture Details
 

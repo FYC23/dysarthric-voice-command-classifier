@@ -25,6 +25,11 @@ class Config:
     CACHE_DIR = DATA_DIR / "cache"       # Derived files, safe to delete and rebuild
 
     TORGO_ROOT = RAW_DATA_DIR / "TORGO"
+    SPEECH_COMMANDS_ROOT = RAW_DATA_DIR / "speech_commands_v2"
+    # Background noise for training augmentation (src/data/noise.py): the 5 long
+    # recordings in Speech Commands' train split. The HF split put a 6th
+    # (running_tap) in validation; it is left out so no held-out audio is trained on.
+    NOISE_DIR = SPEECH_COMMANDS_ROOT / "train" / "_silence_"
     MODEL_CACHE_DIR = CACHE_DIR / "pretrained"  # Downloaded pretrained weights (HuBERT)
     RUNS_DIR = REPO_ROOT / "runs"        # Training checkpoints (large, not committed)
     OUTPUT_DIR = REPO_ROOT / "outputs"   # Results tables and plots (committed)
@@ -130,38 +135,12 @@ class Config:
     USE_CLASS_WEIGHTS = True
     
     # -------------------------------------------------------------------------
-    # AUGMENTATION SETTINGS
+    # AUGMENTATION
     # -------------------------------------------------------------------------
-    # audiomentations-based augmentation pipeline (industry standard)
-    # Each augmentation has a probability (p) of being applied
-    
-    # Time-domain augmentations
-    AUG_NOISE_MIN_AMP = 0.001    # Minimum Gaussian noise amplitude
-    AUG_NOISE_MAX_AMP = 0.015    # Maximum Gaussian noise amplitude
-    AUG_NOISE_PROB = 0.5         # Probability of adding noise
-    
-    AUG_PITCH_MIN_SEMITONES = -2  # Min pitch shift (semitones)
-    AUG_PITCH_MAX_SEMITONES = 2   # Max pitch shift (semitones)
-    AUG_PITCH_PROB = 0.5          # Probability of pitch shift
-    
-    AUG_TIMESTRETCH_MIN = 0.9     # Min time stretch factor
-    AUG_TIMESTRETCH_MAX = 1.1     # Max time stretch factor
-    AUG_TIMESTRETCH_PROB = 0.5    # Probability of time stretch
-    
-    AUG_SHIFT_MIN = -0.2          # Min shift as fraction of total length
-    AUG_SHIFT_MAX = 0.2           # Max shift as fraction of total length
-    AUG_SHIFT_PROB = 0.3          # Probability of time shift
-    
-    AUG_GAIN_MIN_DB = -6          # Min gain adjustment (dB)
-    AUG_GAIN_MAX_DB = 6           # Max gain adjustment (dB)
-    AUG_GAIN_PROB = 0.5           # Probability of gain adjustment
-    
-    # SpecAugment settings (frequency/time masking)
-    # From Google's SpecAugment paper (Park et al., 2019)
-    SPEC_AUG_FREQ_MASK_PARAM = 27  # Max frequency bands to mask (F)
-    SPEC_AUG_TIME_MASK_PARAM = 100 # Max time steps to mask (T)
-    SPEC_AUG_NUM_FREQ_MASKS = 1    # Number of frequency masks
-    SPEC_AUG_NUM_TIME_MASKS = 1    # Number of time masks
+    # Training-only and on the fly. Settings live next to their code as frozen
+    # dataclasses: TorgoAugParams (src/data/torgo_augment.py), BCResNetAugParams
+    # (src/data/speech_commands_augment.py), SpecAugment (src/model/frontend.py).
+    # Rationale: docs/superpowers/specs/2026-09-25-data-augmentation-design.md
     
     # -------------------------------------------------------------------------
     # CURRICULUM LEARNING SETTINGS

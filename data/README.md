@@ -77,7 +77,8 @@ data/raw/speech_commands_v2/
 └── test/         #  4,890 clips
     ├── yes/0a7c2a8d_nohash_0.wav   # <word>/<speaker>_nohash_<n>.wav
     ├── ...                         # 35 words
-    └── _silence_/                  # background-noise recordings, not 1 s clips
+    └── _silence_/                  # train: 5 long noise recordings (augmentation noise bank);
+                                    # validation: 1 (running_tap); test: 408 1 s clips
 ```
 
 Clips are 1 s, 16 kHz, mono int16, matching `Config.SAMPLE_RATE`.

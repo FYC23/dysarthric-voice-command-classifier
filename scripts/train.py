@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import json
+from functools import lru_cache
 import random
 import sys
 from pathlib import Path
@@ -35,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config import config
 from src.data.preprocessing import scan_torgo_dataset, create_label_mapping
 from src.data.dataset import TORGOCommandDataset, collate_fn
+from src.data.noise import NoiseBank
 from src.data.segments import apply_segment_labels, load_segment_labels, measure_kept_lengths
 from src.model.architecture import HuBERTForCommandClassification
 from src.training.trainer import train_epoch, validate, save_checkpoint
@@ -48,6 +50,12 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+@lru_cache(maxsize=1)
+def training_noise_bank() -> NoiseBank:
+    """Background noise for training augmentation, loaded once per process."""
+    return NoiseBank.from_dir(config.NOISE_DIR, config.SAMPLE_RATE)
 
 
 def get_class_weights(df: pd.DataFrame, label2id: dict, device: torch.device) -> torch.Tensor:
@@ -97,7 +105,7 @@ def phase_a_training(
     # Create control dataset
     control_train_dataset = TORGOCommandDataset(
         control_df, feature_extractor, config=config,
-        max_length=config.MAX_AUDIO_SAMPLES, augment=True
+        max_length=config.MAX_AUDIO_SAMPLES, augment=True, noise=training_noise_bank()
     )
     
     batch_size = args.batch_size or config.BATCH_SIZE
@@ -245,7 +253,7 @@ def phase_b_training(
     # Create dysarthric dataset
     dysarthric_train_dataset = TORGOCommandDataset(
         dysarthric_df, feature_extractor, config=config,
-        max_length=config.MAX_AUDIO_SAMPLES, augment=True
+        max_length=config.MAX_AUDIO_SAMPLES, augment=True, noise=training_noise_bank()
     )
     
     batch_size = args.batch_size or config.BATCH_SIZE
@@ -560,6 +568,8 @@ def main():
     
     # Set seed for reproducibility
     set_seed(args.seed)
+    # Fail now, not an hour into Phase A, if the noise recordings are missing
+    print(f"Augmentation noise: {len(training_noise_bank())} recordings from {config.NOISE_DIR}")
     
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
