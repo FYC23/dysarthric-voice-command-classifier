@@ -34,7 +34,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--device", choices=("cuda", "mps", "cpu"), default=None,
                         help="default: cuda, else mps, else cpu")
     parser.add_argument("--dtype", choices=list(DTYPES), default="float32")
-    parser.add_argument("--batch-size", type=int, default=16)
+    # fp32 Whisper large-v3 at 16 clips per batch swapped heavily on a 16 GB Mac
+    parser.add_argument("--batch-size", type=int, default=4)
     return parser.parse_args(argv)
 
 
