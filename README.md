@@ -1,6 +1,6 @@
 # Dysarthric Voice Command Classifier
 
-A deep learning system for recognizing voice commands from speakers with dysarthria, built on HuBERT with curriculum learning. Achieves ~87% accuracy on dysarthric speech using the TORGO dataset.
+A deep learning system for recognizing voice commands from speakers with dysarthria, built on HuBERT with curriculum learning, trained and evaluated on the TORGO dataset.
 
 ## Overview
 
@@ -77,8 +77,11 @@ dysarthric-voice-cmds/
 │       └── trainer.py         # Training and validation loops
 ├── scripts/
 │   └── train.py               # 3-phase curriculum learning training script
-├── outputs/                   # Trained models and results
-├── model_cache/               # Cached HuBERT weights
+├── data/                      # Gitignored except README: datasets and caches
+│   ├── raw/TORGO/             # TORGO as downloaded
+│   └── cache/pretrained/      # Cached HuBERT weights
+├── runs/                      # Gitignored: training checkpoints
+├── outputs/                   # Results tables and plots
 ├── main.ipynb                 # Main training notebook
 └── requirements.txt           # Python dependencies
 ```
@@ -98,6 +101,8 @@ cd dysarthric-voice-cmds
 pip install -r requirements.txt
 ```
 
+For development (adds pytest), install `requirements-dev.txt` instead and run the tests with `python -m pytest tests`.
+
 **Requirements:**
 - torch, torchaudio
 - transformers
@@ -108,20 +113,22 @@ pip install -r requirements.txt
 
 ### 3. Download the TORGO dataset
 
-Download from: [TORGO Database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html)
+```bash
+bash scripts/download_torgo.sh
+```
 
-Update the `TORGO_ROOT` path in `src/config.py` to point to your TORGO directory.
+This fetches the four archives from the [TORGO Database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html) and extracts them into `data/raw/TORGO/`. See [data/README.md](data/README.md) for the layout.
 
 ### 4. Download HuBERT model
 
-The HuBERT model will be automatically downloaded via ModelScope on first training run. The model is cached in `model_cache/` for subsequent runs.
+The HuBERT model will be automatically downloaded via ModelScope on first training run. The model is cached in `data/cache/pretrained/` for subsequent runs.
 
 Alternatively, you can pre-cache it:
 
 ```python
 from modelscope import snapshot_download
 
-model_dir = snapshot_download("facebook/hubert-large-ls960-ft", cache_dir="model_cache")
+model_dir = snapshot_download("facebook/hubert-large-ls960-ft", cache_dir="data/cache/pretrained")
 ```
 
 ## Quick Start
@@ -136,13 +143,12 @@ python scripts/train.py
 python scripts/train.py --skip-phase-c
 
 # Customize training epochs
-python scripts/train.py --epochs-a 10 --epochs-b 10 --epochs-loso 5
+python scripts/train.py --epochs-a 10 --epochs-b 10
 
 # Full options
 python scripts/train.py \
     --epochs-a 20 \           # Phase A epochs (control pretraining)
     --epochs-b 20 \           # Phase B epochs (dysarthric fine-tuning)
-    --epochs-loso 10 \        # Phase C LOSO fine-tuning epochs per fold
     --batch-size 8 \          # Batch size
     --seed 42 \               # Random seed for reproducibility
     --skip-phase-c            # Skip LOSO evaluation
@@ -150,8 +156,8 @@ python scripts/train.py \
 
 **Output artifacts:**
 - `outputs/phase_a_control_pretrained.pt` - Phase A checkpoint
-- `outputs/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
-- `outputs/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C
+- `runs/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
+- `outputs/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C (never trained on `{speaker}`)
 - `outputs/curriculum_cv_results.csv` - Cross-validation results
 - `outputs/curriculum_cv_results.json` - JSON format results
 - `outputs/label_mapping.json` - Label encoding
@@ -180,8 +186,10 @@ The model uses a three-phase curriculum learning approach:
 - Adapts to dysarthric speech patterns
 
 **Phase C: Leave-One-Speaker-Out (LOSO) Evaluation**
-- Cross-validation leaving one dysarthric speaker out for testing
-- Ensures model generalizes to unseen speakers
+- For each dysarthric speaker, Phase B is re-run from the Phase A checkpoint on the *other* dysarthric speakers, then the model is evaluated once on the held-out speaker
+- The final Phase B model is **not** reused here, since it was trained on every dysarthric speaker (including the one being held out)
+- The held-out speaker is never used for epoch/checkpoint selection
+- Reports both mean per-speaker accuracy and pooled (per-utterance) accuracy
 
 ### Sub-Phase Training (within each curriculum phase)
 
@@ -203,7 +211,6 @@ Each curriculum phase uses a two-stage training approach:
 |----------|-------------|---------|
 | `--epochs-a` | Phase A epochs (control pretraining) | from config |
 | `--epochs-b` | Phase B epochs (dysarthric fine-tuning) | from config |
-| `--epochs-loso` | Phase C LOSO fine-tuning epochs per fold | 10 |
 | `--batch-size` | Training batch size | from config |
 | `--seed` | Random seed for reproducibility | 42 |
 | `--skip-phase-c` | Skip LOSO evaluation | False |
@@ -297,8 +304,8 @@ self.classifier = nn.Sequential(
 
 ## Results
 
-- **Cross-validation accuracy**: ~87% on dysarthric speakers
-- **Evaluation method**: Leave-one-speaker-out (LOSO) cross-validation
+- **Evaluation method**: Leave-one-speaker-out (LOSO) cross-validation over the 8 dysarthric speakers
+- **Note**: The previously reported ~87% came from an evaluation where each fold started from a model already trained on the held-out speaker and selected its best epoch on that speaker's test data, so it overstated generalization to unseen speakers. Re-run `python scripts/train.py` to regenerate `outputs/curriculum_cv_results.*` with the corrected protocol.
 
 Output artifacts in `outputs/`:
 - `confusion_matrix.png` - Confusion matrix visualization

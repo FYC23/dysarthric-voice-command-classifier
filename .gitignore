@@ -4,6 +4,16 @@ __pycache__/
 *.egg-info/
 .eggs/
 
+# Data: track only the README (datasets and caches live in data/raw, data/cache)
+data/*
+!data/README.md
+
+# Training checkpoints (no trailing slash: runs may be a symlink)
+/runs
+
+# macOS
+.DS_Store
+
 # Model files (too large for GitHub)
 model_cache/
 outputs/*.pt
@@ -18,6 +28,7 @@ outputs_10 classes/
 # Environment
 .env
 venv/
+.venv/
 
 # Hugging Face Spaces
 hf_spaces_package/

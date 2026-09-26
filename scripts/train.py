@@ -5,7 +5,8 @@ Training script for dysarthric voice command classifier.
 Implements a 3-phase curriculum learning approach:
 - Phase A: Control speaker pretraining
 - Phase B: Dysarthric speaker fine-tuning
-- Phase C: LOSO evaluation on dysarthric speakers
+- Phase C: LOSO evaluation on dysarthric speakers (each fold re-runs Phase B
+  from the Phase A checkpoint without the held-out speaker)
 
 Usage:
     python scripts/train.py
@@ -18,6 +19,7 @@ import json
 import random
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -190,7 +192,7 @@ def phase_a_training(
             best_state_dict_a = {k: v.cpu().clone() for k, v in phase_a_model.state_dict().items()}
     
     # Save Phase A checkpoint
-    phase_a_checkpoint_path = config.OUTPUT_DIR / 'phase_a_control_pretrained.pt'
+    phase_a_checkpoint_path = config.RUNS_DIR / 'phase_a_control_pretrained.pt'
     torch.save({
         'model_state_dict': best_state_dict_a,
         'train_acc': best_train_acc_a,
@@ -218,13 +220,16 @@ def phase_b_training(
     feature_extractor: Wav2Vec2FeatureExtractor,
     device: torch.device,
     phase_a_checkpoint_path: Path,
-    args: argparse.Namespace
+    args: argparse.Namespace,
+    checkpoint_path: Optional[Path] = None
 ) -> Path:
     """
     Phase B: Dysarthric Speaker Fine-tuning
-    
-    Load Phase A checkpoint and fine-tune on dysarthric speakers only.
-    
+
+    Load Phase A checkpoint and fine-tune on the given dysarthric speakers only.
+    Also reused by Phase C to train each LOSO fold from the same Phase A
+    starting point, so the held-out speaker is never seen during training.
+
     Returns:
         Path to saved Phase B checkpoint
     """
@@ -313,7 +318,7 @@ def phase_b_training(
             best_state_dict_b = {k: v.cpu().clone() for k, v in phase_b_model.state_dict().items()}
     
     # Save Phase B checkpoint (curriculum-trained model)
-    phase_b_checkpoint_path = config.OUTPUT_DIR / 'phase_b_curriculum_trained.pt'
+    phase_b_checkpoint_path = checkpoint_path or config.RUNS_DIR / 'phase_b_curriculum_trained.pt'
     torch.save({
         'model_state_dict': best_state_dict_b,
         'train_acc': best_train_acc_b,
@@ -334,19 +339,70 @@ def phase_b_training(
     return phase_b_checkpoint_path
 
 
+def evaluate_checkpoint(
+    model_dir: str,
+    checkpoint_path: Path,
+    eval_df: pd.DataFrame,
+    label2id: dict,
+    feature_extractor: Wav2Vec2FeatureExtractor,
+    device: torch.device,
+    batch_size: int
+) -> tuple:
+    """
+    Evaluate a saved checkpoint once on held-out data (no augmentation).
+
+    Loss is unweighted cross-entropy so it is comparable across folds.
+
+    Returns:
+        (loss, accuracy, preds, labels, speaker_ids)
+    """
+    eval_dataset = TORGOCommandDataset(
+        eval_df, feature_extractor, config=config,
+        max_length=config.MAX_AUDIO_SAMPLES, augment=False
+    )
+    eval_loader = DataLoader(
+        eval_dataset, batch_size=batch_size, shuffle=False,
+        collate_fn=collate_fn, num_workers=4, pin_memory=True
+    )
+
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    model = HuBERTForCommandClassification(
+        model_path=model_dir,
+        num_labels=len(label2id),
+        hidden_size=config.HIDDEN_SIZE,
+        classifier_dropout=config.CLASSIFIER_DROPOUT,
+        freeze_encoder=True,
+        freeze_feature_extractor=True
+    ).to(device)
+    model.load_state_dict({k: v.to(device) for k, v in checkpoint['model_state_dict'].items()})
+
+    results = validate(model, eval_loader, device, class_weights=None)
+
+    del model
+    torch.cuda.empty_cache()
+    return results
+
+
 def phase_c_loso_evaluation(
     model_dir: str,
     dysarthric_df: pd.DataFrame,
     label2id: dict,
     feature_extractor: Wav2Vec2FeatureExtractor,
     device: torch.device,
-    phase_b_checkpoint_path: Path,
+    phase_a_checkpoint_path: Path,
     args: argparse.Namespace
 ) -> dict:
     """
     Phase C: LOSO Evaluation on Dysarthric Speakers
     
-    For each dysarthric speaker, hold them out and evaluate.
+    For each dysarthric speaker, re-run Phase B from the Phase A checkpoint on
+    the remaining dysarthric speakers, then evaluate once on the held-out one.
+
+    The Phase B model trained on *all* dysarthric speakers must not be used as
+    the starting point here: it has already seen the held-out speaker. Phase A
+    only uses control speakers, so sharing it across folds does not leak.
+    Model selection inside each fold uses training accuracy only (same rule as
+    Phase B); the held-out speaker is never used to pick an epoch.
     
     Returns:
         Dictionary with cross-validation results
@@ -357,145 +413,66 @@ def phase_c_loso_evaluation(
     
     dysarthric_speakers = sorted(dysarthric_df['speaker_id'].unique().tolist())
     print(f"\nEvaluating on {len(dysarthric_speakers)} dysarthric speakers")
-    print(f"Each fold: fine-tune on {len(dysarthric_speakers)-1} dysarthric speakers, evaluate on 1")
+    print(f"Each fold: Phase A checkpoint -> Phase B on {len(dysarthric_speakers)-1} "
+          f"dysarthric speakers -> evaluate on the held-out speaker")
     
     batch_size = args.batch_size or config.BATCH_SIZE
     
     # Storage for cross-validation results
     cv_results = {
         'fold': [],
-        'val_speaker': [],
-        'best_val_acc': [],
-        'best_val_loss': [],
+        'test_speaker': [],
+        'test_acc': [],
+        'test_loss': [],
         'train_samples': [],
-        'val_samples': [],
+        'test_samples': [],
         'all_preds': [],
         'all_labels': [],
         'all_speaker_ids': []
     }
     
-    # Number of fine-tuning epochs per fold
-    loso_finetune_epochs = args.epochs_loso or 10
-    
-    for fold_idx, val_speaker in enumerate(dysarthric_speakers):
+    for fold_idx, test_speaker in enumerate(dysarthric_speakers):
         print(f"\n{'='*60}")
-        print(f"FOLD {fold_idx + 1}/{len(dysarthric_speakers)}: Hold out speaker {val_speaker}")
+        print(f"FOLD {fold_idx + 1}/{len(dysarthric_speakers)}: Hold out speaker {test_speaker}")
         print(f"{'='*60}")
         
         # Split dysarthric data for this fold
-        fold_train_df = dysarthric_df[dysarthric_df['speaker_id'] != val_speaker].copy()
-        fold_val_df = dysarthric_df[dysarthric_df['speaker_id'] == val_speaker].copy()
+        fold_train_df = dysarthric_df[dysarthric_df['speaker_id'] != test_speaker].copy()
+        fold_test_df = dysarthric_df[dysarthric_df['speaker_id'] == test_speaker].copy()
+        assert test_speaker not in set(fold_train_df['speaker_id']), \
+            f"Held-out speaker {test_speaker} leaked into fold training data"
         
         print(f"  Training speakers: {sorted(fold_train_df['speaker_id'].unique().tolist())}")
-        print(f"  Validation speaker: {val_speaker}")
-        print(f"  Train samples: {len(fold_train_df)}, Val samples: {len(fold_val_df)}")
+        print(f"  Test speaker: {test_speaker}")
+        print(f"  Train samples: {len(fold_train_df)}, Test samples: {len(fold_test_df)}")
         
-        # Create datasets for this fold
-        fold_train_dataset = TORGOCommandDataset(
-            fold_train_df, feature_extractor, config=config,
-            max_length=config.MAX_AUDIO_SAMPLES, augment=True
-        )
-        fold_val_dataset = TORGOCommandDataset(
-            fold_val_df, feature_extractor, config=config,
-            max_length=config.MAX_AUDIO_SAMPLES, augment=False
+        # Train this fold's model from Phase A, without the held-out speaker
+        fold_model_path = config.RUNS_DIR / f'curriculum_fold{fold_idx + 1}_{test_speaker}.pt'
+        phase_b_training(
+            model_dir, fold_train_df, label2id, feature_extractor, device,
+            phase_a_checkpoint_path, args, checkpoint_path=fold_model_path
         )
         
-        # Create dataloaders
-        fold_train_loader = DataLoader(
-            fold_train_dataset, batch_size=batch_size, shuffle=True,
-            collate_fn=collate_fn, num_workers=4, pin_memory=True
-        )
-        fold_val_loader = DataLoader(
-            fold_val_dataset, batch_size=batch_size, shuffle=False,
-            collate_fn=collate_fn, num_workers=4, pin_memory=True
-        )
-        
-        # Compute class weights for this fold's training data
-        fold_class_weights = None
-        if config.USE_CLASS_WEIGHTS:
-            fold_class_weights = get_class_weights(fold_train_df, label2id, device)
-        
-        # Load Phase B checkpoint
-        phase_b_checkpoint = torch.load(phase_b_checkpoint_path, map_location=device)
-        
-        # Initialize model and load Phase B weights
-        fold_model = HuBERTForCommandClassification(
-            model_path=model_dir,
-            num_labels=len(label2id),
-            hidden_size=config.HIDDEN_SIZE,
-            classifier_dropout=config.CLASSIFIER_DROPOUT,
-            freeze_encoder=False,
-            freeze_feature_extractor=True
-        ).to(device)
-        
-        fold_model.load_state_dict({k: v.to(device) for k, v in phase_b_checkpoint['model_state_dict'].items()})
-        fold_model.unfreeze_encoder(num_layers=config.CURRICULUM_UNFREEZE_LAYERS)
-        
-        # Fine-tune on this fold's training data
-        print(f"\n  Fine-tuning for {loso_finetune_epochs} epochs...")
-        
-        optimizer = torch.optim.AdamW([
-            {'params': fold_model.classifier.parameters(), 'lr': config.CURRICULUM_DYSARTHRIC_LR * 0.5},
-            {'params': fold_model.hubert.encoder.parameters(), 'lr': config.CURRICULUM_DYSARTHRIC_LR_ENCODER * 0.5}
-        ], weight_decay=config.WEIGHT_DECAY)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=loso_finetune_epochs, eta_min=1e-7
-        )
-        
-        best_val_acc = 0.0
-        best_val_loss = float('inf')
-        best_state_dict = None
-        
-        for epoch in range(loso_finetune_epochs):
-            train_loss, train_acc = train_epoch(
-                fold_model, fold_train_loader, optimizer, device,
-                epoch, loso_finetune_epochs,
-                max_grad_norm=config.MAX_GRAD_NORM, class_weights=fold_class_weights
-            )
-            val_loss, val_acc, _, _, _ = validate(
-                fold_model, fold_val_loader, device, class_weights=fold_class_weights
-            )
-            scheduler.step()
-            
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_val_loss = val_loss
-                best_state_dict = {k: v.cpu().clone() for k, v in fold_model.state_dict().items()}
-        
-        # Final evaluation with best model
-        fold_model.load_state_dict({k: v.to(device) for k, v in best_state_dict.items()})
-        _, final_acc, final_preds, final_labels, final_speakers = validate(
-            fold_model, fold_val_loader, device, class_weights=fold_class_weights
+        # Single evaluation on the held-out speaker
+        test_loss, test_acc, test_preds, test_labels, test_speakers = evaluate_checkpoint(
+            model_dir, fold_model_path, fold_test_df, label2id,
+            feature_extractor, device, batch_size
         )
         
         print(f"\n  Fold {fold_idx + 1} Results:")
-        print(f"    Best validation accuracy: {best_val_acc:.4f}")
-        print(f"    Samples correctly classified: {sum(p == l for p, l in zip(final_preds, final_labels))}/{len(final_labels)}")
+        print(f"    Test accuracy: {test_acc:.4f}")
+        print(f"    Samples correctly classified: {sum(p == l for p, l in zip(test_preds, test_labels))}/{len(test_labels)}")
         
         # Store results
         cv_results['fold'].append(fold_idx)
-        cv_results['val_speaker'].append(val_speaker)
-        cv_results['best_val_acc'].append(best_val_acc)
-        cv_results['best_val_loss'].append(best_val_loss)
+        cv_results['test_speaker'].append(test_speaker)
+        cv_results['test_acc'].append(test_acc)
+        cv_results['test_loss'].append(test_loss)
         cv_results['train_samples'].append(len(fold_train_df))
-        cv_results['val_samples'].append(len(fold_val_df))
-        cv_results['all_preds'].extend(final_preds)
-        cv_results['all_labels'].extend(final_labels)
-        cv_results['all_speaker_ids'].extend(final_speakers)
-        
-        # Save fold model
-        fold_model_path = config.OUTPUT_DIR / f'curriculum_fold{fold_idx + 1}_{val_speaker}.pt'
-        torch.save({
-            'fold': fold_idx,
-            'val_speaker': val_speaker,
-            'model_state_dict': best_state_dict,
-            'val_acc': best_val_acc,
-            'val_loss': best_val_loss,
-        }, fold_model_path)
-        
-        # Clean up
-        del fold_model
-        torch.cuda.empty_cache()
+        cv_results['test_samples'].append(len(fold_test_df))
+        cv_results['all_preds'].extend(test_preds)
+        cv_results['all_labels'].extend(test_labels)
+        cv_results['all_speaker_ids'].extend(test_speakers)
     
     print("\n" + "=" * 60)
     print("PHASE C: LOSO EVALUATION COMPLETE")
@@ -504,10 +481,16 @@ def phase_c_loso_evaluation(
     return cv_results
 
 
-def print_results_summary(cv_results: dict, phase_a_acc: float, phase_b_acc: float):
+def print_results_summary(cv_results: dict, phase_a_train_acc: float, phase_b_train_acc: float):
     """Print a summary of the curriculum learning results."""
-    mean_acc = np.mean(cv_results['best_val_acc'])
-    std_acc = np.std(cv_results['best_val_acc'])
+    fold_accs = cv_results['test_acc']
+    mean_acc = np.mean(fold_accs)
+    std_acc = np.std(fold_accs)
+    # Pooled accuracy weights every utterance equally; the per-speaker mean
+    # weights every speaker equally (folds range from ~8 to ~40 utterances).
+    pooled_acc = float(np.mean(
+        np.array(cv_results['all_preds']) == np.array(cv_results['all_labels'])
+    ))
     
     print("\n" + "=" * 60)
     print("CURRICULUM LEARNING RESULTS BY FOLD")
@@ -516,26 +499,28 @@ def print_results_summary(cv_results: dict, phase_a_acc: float, phase_b_acc: flo
     # Create results DataFrame
     cv_summary = pd.DataFrame({
         'Fold': [f + 1 for f in cv_results['fold']],
-        'Val Speaker': cv_results['val_speaker'],
-        'Val Accuracy': cv_results['best_val_acc'],
-        'Val Loss': cv_results['best_val_loss'],
+        'Test Speaker': cv_results['test_speaker'],
+        'Test Accuracy': fold_accs,
+        'Test Loss': cv_results['test_loss'],
         'Train Samples': cv_results['train_samples'],
-        'Val Samples': cv_results['val_samples']
+        'Test Samples': cv_results['test_samples']
     })
     cv_summary['Speaker Type'] = 'Dysarthric'
     
     print(cv_summary.to_string(index=False))
     
     print(f"\n" + "=" * 60)
-    print("OVERALL DYSARTHRIC SPEAKER METRICS")
+    print("OVERALL DYSARTHRIC SPEAKER METRICS (held-out LOSO)")
     print("=" * 60)
-    print(f"Mean Accuracy: {mean_acc:.4f} ± {std_acc:.4f}")
-    print(f"Min Accuracy:  {min(cv_results['best_val_acc']):.4f}")
-    print(f"Max Accuracy:  {max(cv_results['best_val_acc']):.4f}")
+    print(f"Mean per-speaker accuracy: {mean_acc:.4f} ± {std_acc:.4f}")
+    print(f"Pooled accuracy:           {pooled_acc:.4f} "
+          f"({len(cv_results['all_labels'])} utterances)")
+    print(f"Min speaker accuracy:      {min(fold_accs):.4f}")
+    print(f"Max speaker accuracy:      {max(fold_accs):.4f}")
     
-    print(f"\nPhase A (Control Pretraining) Accuracy: {phase_a_acc:.4f}")
-    print(f"Phase B (Dysarthric Fine-tuning) Accuracy: {phase_b_acc:.4f}")
-    print(f"Phase C (LOSO on Dysarthric) Mean Accuracy: {mean_acc:.4f}")
+    print(f"\nPhase A training accuracy (control, augmented):    {phase_a_train_acc:.4f}")
+    print(f"Phase B training accuracy (dysarthric, augmented): {phase_b_train_acc:.4f}")
+    print(f"Phase C held-out accuracy (LOSO, per-speaker mean): {mean_acc:.4f}")
     
     # Save CV results
     cv_summary.to_csv(config.OUTPUT_DIR / 'curriculum_cv_results.csv', index=False)
@@ -543,11 +528,13 @@ def print_results_summary(cv_results: dict, phase_a_acc: float, phase_b_acc: flo
     
     # Save to JSON
     cv_results_json = {
+        'evaluation': 'loso_phase_b_retrained_per_fold',
         'mean_accuracy': float(mean_acc),
         'std_accuracy': float(std_acc),
+        'pooled_accuracy': pooled_acc,
         'fold_results': cv_summary.to_dict(orient='records'),
-        'phase_a_accuracy': float(phase_a_acc),
-        'phase_b_accuracy': float(phase_b_acc),
+        'phase_a_train_accuracy': float(phase_a_train_acc),
+        'phase_b_train_accuracy': float(phase_b_train_acc),
         'phase_c_mean_accuracy': float(mean_acc)
     }
     with open(config.OUTPUT_DIR / 'curriculum_cv_results.json', 'w') as f:
@@ -564,8 +551,6 @@ def main():
                         help=f'Phase A epochs (default: {config.CURRICULUM_CONTROL_EPOCHS})')
     parser.add_argument('--epochs-b', type=int, default=None,
                         help=f'Phase B epochs (default: {config.CURRICULUM_DYSARTHRIC_EPOCHS})')
-    parser.add_argument('--epochs-loso', type=int, default=10,
-                        help='LOSO fine-tuning epochs per fold (default: 10)')
     parser.add_argument('--batch-size', type=int, default=None,
                         help=f'Batch size (default: {config.BATCH_SIZE})')
     parser.add_argument('--seed', type=int, default=42,
@@ -585,6 +570,7 @@ def main():
     # Create output directories
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     config.MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    config.RUNS_DIR.mkdir(parents=True, exist_ok=True)
     
     # =========================================================================
     # DATA PREPARATION
@@ -595,11 +581,12 @@ def main():
     
     print("\nScanning TORGO dataset...")
     df = scan_torgo_dataset(config.TORGO_ROOT, config.TARGET_COMMANDS, config.MIC_TYPE)
-    
+
     print(f"\nFound {len(df)} samples matching target commands")
     print(f"Unique speakers: {df['speaker_id'].nunique()}")
     print(f"Unique labels: {df['label'].nunique()}")
-    
+
+
     # Create label encoding
     label2id, id2label = create_label_mapping(df)
     df['label_id'] = df['label'].map(label2id)
@@ -655,7 +642,8 @@ def main():
     print(f"  Phase A: Control pretraining ({epochs_a} epochs)")
     print(f"  Phase B: Dysarthric fine-tuning ({epochs_b} epochs)")
     if not args.skip_phase_c:
-        print(f"  Phase C: LOSO evaluation on {len(dysarthric_speakers)} dysarthric speakers")
+        print(f"  Phase C: LOSO evaluation on {len(dysarthric_speakers)} dysarthric speakers "
+              f"(Phase B re-run per fold, {epochs_b} epochs each)")
     else:
         print(f"  Phase C: Skipped")
     
@@ -690,7 +678,7 @@ def main():
     if not args.skip_phase_c:
         cv_results = phase_c_loso_evaluation(
             model_dir, dysarthric_df, label2id, feature_extractor, device,
-            phase_b_checkpoint_path, args
+            phase_a_checkpoint_path, args
         )
         
         # Print results summary
@@ -699,9 +687,10 @@ def main():
         print("\n" + "=" * 60)
         print("TRAINING COMPLETE (Phase C skipped)")
         print("=" * 60)
-        print(f"\nPhase A (Control Pretraining) Accuracy: {phase_a_acc:.4f}")
-        print(f"Phase B (Dysarthric Fine-tuning) Accuracy: {phase_b_acc:.4f}")
-        print(f"\nCheckpoints saved to: {config.OUTPUT_DIR}")
+        print(f"\nPhase A training accuracy (control, augmented): {phase_a_acc:.4f}")
+        print(f"Phase B training accuracy (dysarthric, augmented): {phase_b_acc:.4f}")
+        print("No held-out evaluation was run (Phase C skipped).")
+        print(f"\nCheckpoints saved to: {config.RUNS_DIR}")
     
     print("\nDone!")
 

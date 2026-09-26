@@ -17,9 +17,17 @@ class Config:
     # -------------------------------------------------------------------------
     # PATHS
     # -------------------------------------------------------------------------
-    TORGO_ROOT = Path("/root/autodl-tmp/TORGO")
-    OUTPUT_DIR = Path("/root/autodl-tmp/dysarthric-voice-cmds/outputs")
-    MODEL_CACHE_DIR = Path("/root/autodl-tmp/dysarthric-voice-cmds/model_cache")
+    # All paths are relative to the repo root, so the same code runs on any
+    # machine. data/raw, data/cache and runs/ are gitignored (see data/README.md).
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = REPO_ROOT / "data"
+    RAW_DATA_DIR = DATA_DIR / "raw"      # Datasets exactly as downloaded (read-only)
+    CACHE_DIR = DATA_DIR / "cache"       # Derived files, safe to delete and rebuild
+
+    TORGO_ROOT = RAW_DATA_DIR / "TORGO"
+    MODEL_CACHE_DIR = CACHE_DIR / "pretrained"  # Downloaded pretrained weights (HuBERT)
+    RUNS_DIR = REPO_ROOT / "runs"        # Training checkpoints (large, not committed)
+    OUTPUT_DIR = REPO_ROOT / "outputs"   # Results tables and plots (committed)
     
     # -------------------------------------------------------------------------
     # TARGET COMMANDS
