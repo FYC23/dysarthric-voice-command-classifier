@@ -163,6 +163,27 @@ Run it once per seed (`--seed 0`, `--seed 1`, `--seed 2`); results are reported 
 - `outputs/curriculum_cv_results.json` - JSON format results
 - `outputs/label_mapping.json` - Label encoding
 
+## BC-ResNet (step 3)
+
+Three stages per width τ ∈ {1, 2, 3, 8} and seed
+([design](docs/superpowers/specs/2026-09-26-bcresnet-training-design.md)):
+
+1. **Speech Commands pretraining**: 35 words + silence, 2 s window, the BC-ResNet
+   paper's recipe (200 epochs). Needs `bash scripts/download_speech_commands.sh`.
+   The first run caches the extracted words in `data/cache/speech_commands_words/`.
+2. **TORGO control speakers** with a new 20-class head.
+3. **TORGO dysarthric fine-tune**, once per held-out speaker (evaluated) and once on
+   all 8 speakers (the deploy model).
+
+```bash
+python scripts/pretrain_bcresnet.py --tau 8 --seed 0            # stage 1 (add --resume to continue)
+python scripts/finetune_bcresnet.py --tau 8 --seed 0            # stages 2-3
+```
+
+Outputs go to `runs/bcresnet-<τ>/seed<k>/`; the eval-harness run is in its `eval/`.
+Stage 2–3 hyperparameters are fixed in `src/training/bcresnet_recipe.py` and are
+never tuned on held-out results.
+
 ## Supported Commands
 
 | Category | Commands |
