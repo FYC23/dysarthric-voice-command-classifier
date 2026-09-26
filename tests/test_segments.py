@@ -127,3 +127,56 @@ class TestApplySegmentLabels:
         before = df.copy()
         apply_segment_labels(df, {}, ROOT, 2.0)
         pd.testing.assert_frame_equal(df, before)
+
+
+# --- Evaluation clips and the shared loader ---------------------------------
+
+from types import SimpleNamespace
+
+from src.data.segments import evaluation_clips, load_torgo_samples
+from src.eval.schema import CLIP_KEY
+
+
+class TestEvaluationClips:
+    def two_attempts(self):
+        labels = {LONG: {"status": "done", "segments": [
+            {"start": 3.8, "end": 4.1, "type": "word"},   # listed out of order on purpose
+            {"start": 2.9, "end": 3.5, "type": "word"},
+        ]}}
+        rows = pd.DataFrame([row(SHORT, 0.8), row(LONG, 4.2)])
+        return apply_segment_labels(rows, labels, ROOT, 2.0).samples
+
+    def test_recording_with_two_attempts_keeps_the_first(self):
+        samples = self.two_attempts()
+        assert len(samples) == 3  # training keeps both attempts
+        clips = evaluation_clips(samples)
+        assert len(clips) == 2
+        assert not clips.duplicated(list(CLIP_KEY)).any()
+        long_row = clips[clips.utterance_id == "0072"].iloc[0]
+        assert (long_row.seg_start, long_row.seg_end) == (2.9, 3.5)
+
+    def test_other_rows_and_order_are_untouched(self):
+        samples = self.two_attempts()
+        clips = evaluation_clips(samples)
+        assert clips.utterance_id.tolist() == ["0001", "0072"]
+        assert np.isnan(clips.seg_start.iloc[0])
+
+    def test_input_is_not_mutated(self):
+        samples = self.two_attempts()
+        before = samples.copy()
+        evaluation_clips(samples)
+        pd.testing.assert_frame_equal(samples, before)
+
+
+def test_load_torgo_samples_scans_and_applies_labels(fake_torgo, tmp_path):
+    cfg = SimpleNamespace(
+        TORGO_ROOT=fake_torgo, TARGET_COMMANDS=["one", "two", "yes", "no", "up", "down",
+                                                "left", "right"],
+        MIC_TYPES=("wav_arrayMic", "wav_headMic"), MIN_AUDIO_DURATION=0.1,
+        MAX_AUDIO_DURATION=10.0, TORGO_MANUAL_SEGMENT_LABELS=tmp_path / "none.json",
+        MAX_AUDIO_LENGTH=2.0)
+    result = load_torgo_samples(cfg)
+    # See the fake_torgo docstring: 7 usable rows, all short enough to keep whole
+    assert len(result.samples) == 7
+    assert {"kept_s", "seg_start", "seg_end"} <= set(result.samples.columns)
+    assert result.dropped.empty

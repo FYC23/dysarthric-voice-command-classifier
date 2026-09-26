@@ -24,6 +24,8 @@ import pandas as pd
 import soundfile as sf
 
 from ..audio import DEFAULT_VAD, VadParams, kept_length_s
+from ..eval.schema import CLIP_KEY
+from .preprocessing import scan_torgo_dataset
 
 FORMAT, VERSION = "torgo-segment-labels", 1
 SEGMENT_TYPES = {"word", "partial", "non_speech"}
@@ -114,3 +116,26 @@ def apply_segment_labels(df: pd.DataFrame, labels: Dict[str, dict],
         non_speech=pd.DataFrame(non_speech, columns=columns).reset_index(drop=True),
         dropped=pd.DataFrame(dropped, columns=list(df.columns) + ["reason"]).reset_index(drop=True),
     )
+
+
+def load_torgo_samples(cfg) -> SegmentLabelResult:
+    """
+    The TORGO table every model starts from: scan single-word prompts, measure
+    what survives silence trimming, then apply hand-labelled segments. Training
+    and every baseline build their clips here, so they score the same clips.
+    """
+    df = scan_torgo_dataset(cfg.TORGO_ROOT, cfg.TARGET_COMMANDS, cfg.MIC_TYPES,
+                            cfg.MIN_AUDIO_DURATION, cfg.MAX_AUDIO_DURATION)
+    labels = load_segment_labels(cfg.TORGO_MANUAL_SEGMENT_LABELS)
+    return apply_segment_labels(measure_kept_lengths(df), labels,
+                                cfg.TORGO_ROOT, cfg.MAX_AUDIO_LENGTH)
+
+
+def evaluation_clips(samples: pd.DataFrame) -> pd.DataFrame:
+    """
+    One row per recording: where a recording has several labelled word
+    attempts, evaluation scores the first (earliest seg_start). Training keeps
+    every attempt; scoring both would count one recording twice.
+    """
+    earliest_first = samples.sort_values("seg_start", kind="stable", na_position="first")
+    return earliest_first.drop_duplicates(list(CLIP_KEY), keep="first").sort_index()
