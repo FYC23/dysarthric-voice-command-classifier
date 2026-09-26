@@ -83,12 +83,21 @@ def _fresh_progress() -> dict:
             "history": []}
 
 
+def _refuse_overwrite(job: PretrainJob) -> None:
+    """Without resume, an existing run (finished or not) is never overwritten."""
+    if job.resume:
+        return
+    existing = [Path(job.out_dir) / name
+                for name in (BEST_CHECKPOINT, LAST_CHECKPOINT, METRICS_FILE)
+                if (Path(job.out_dir) / name).exists()]
+    if existing:
+        raise FileExistsError(f"{existing[0]} exists; pass --resume to continue that run, "
+                              "or choose another --out-dir")
+
+
 def _resume(job, model, optimizer, scheduler, generator) -> dict:
     path = Path(job.out_dir) / LAST_CHECKPOINT
     if not job.resume:
-        if path.exists():
-            raise FileExistsError(f"{path} exists; pass --resume to continue that run, "
-                                  "or choose another --out-dir")
         return _fresh_progress()
     if not path.exists():
         print(f"No {path} to resume from; starting fresh")
@@ -151,6 +160,7 @@ def _finish(job, model, progress, logmel, test_loader) -> dict:
 
 
 def run_pretraining(job: PretrainJob) -> dict:
+    _refuse_overwrite(job)
     set_seed(job.seed)
     Path(job.out_dir).mkdir(parents=True, exist_ok=True)
     train_loader, val_loader, test_loader = _loaders(job)

@@ -59,6 +59,18 @@ def test_resume_continues_from_the_last_epoch(fake_speech_commands, tmp_path):
     torch.save(checkpoint, last)
     metrics = run_pretraining(make_job(fake_speech_commands, tmp_path, resume=True))
     assert [h["epoch"] for h in metrics["history"]] == [1, 2]
+    assert metrics["history"][0] == checkpoint["history"][0]  # epoch 1 kept, not retrained
+
+
+def test_finished_run_without_last_checkpoint_refuses_to_overwrite(
+        fake_speech_commands, tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    (out / BEST_CHECKPOINT).write_bytes(b"finished run")
+    with pytest.raises(FileExistsError, match="--resume"):
+        run_pretraining(make_job(fake_speech_commands, tmp_path))
+    assert (out / BEST_CHECKPOINT).read_bytes() == b"finished run"
+    assert not (tmp_path / "cache").exists()  # refused before building the word caches
 
 
 def test_resume_refuses_another_width(fake_speech_commands, tmp_path):
