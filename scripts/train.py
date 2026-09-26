@@ -8,10 +8,14 @@ Implements a 3-phase curriculum learning approach:
 - Phase C: LOSO evaluation on dysarthric speakers (each fold re-runs Phase B
   from the Phase A checkpoint without the held-out speaker)
 
+Each seed writes to runs/hubert-large/seed<k>/: its checkpoints, and in eval/
+the Phase C predictions in the eval-harness format (src/eval), ready for
+src.eval.io.load_run. Run once per seed; the harness wants at least 3.
+
 Usage:
-    python scripts/train.py
-    python scripts/train.py --skip-phase-c
-    python scripts/train.py --epochs-a 10 --epochs-b 10
+    python scripts/train.py --seed 0
+    python scripts/train.py --seed 1 --skip-phase-c
+    python scripts/train.py --seed 2 --epochs-a 10 --epochs-b 10
 """
 
 import argparse
@@ -38,6 +42,8 @@ from src.data.preprocessing import scan_torgo_dataset, create_label_mapping
 from src.data.dataset import TORGOCommandDataset, collate_fn
 from src.data.noise import NoiseBank
 from src.data.segments import apply_segment_labels, load_segment_labels, measure_kept_lengths
+from src.eval.io import save_run
+from src.eval.schema import PRED_COLUMNS, EvalValidationError, Run
 from src.model.architecture import HuBERTForCommandClassification
 from src.training.trainer import train_epoch, validate, save_checkpoint
 
@@ -50,6 +56,64 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+RUN_NAME = "hubert-large"  # the model's name in eval-harness tables
+UNVALIDATED_PREDICTIONS = "predictions_unvalidated.csv"
+
+
+def seed_dir(seed: int) -> Path:
+    """Checkpoints and evaluation output of one seed, so seeds never overwrite each other."""
+    return config.RUNS_DIR / RUN_NAME / f"seed{seed}"
+
+
+def fold_predictions(test_df: pd.DataFrame, pred_ids, label_ids, id2label: dict) -> pd.DataFrame:
+    """
+    Eval-harness rows for one fold: each clip's identity from test_df plus its
+    predicted word. evaluate_checkpoint does not shuffle, so predictions come
+    back in table order; the returned labels are checked to prove it.
+    """
+    clips = test_df.reset_index(drop=True)
+    returned = [int(i) for i in label_ids]
+    if len(pred_ids) != len(clips) or returned != clips['label_id'].astype(int).tolist():
+        raise ValueError("predictions are not in the order of the test table; "
+                         "cannot attach them to clips")
+    clip_columns = [c for c in PRED_COLUMNS if c != 'pred']
+    return clips[clip_columns].assign(pred=[id2label[int(i)] for i in pred_ids])
+
+
+def build_loso_run(frames, fold_train_speakers: dict, control_speakers, seed: int) -> Run:
+    """
+    One validated eval-harness run from the Phase C folds. Every fold starts
+    from Phase A, which trained on all control speakers, so they are recorded
+    as training speakers of every fold.
+    """
+    controls = frozenset(control_speakers)
+    return Run(
+        model=RUN_NAME,
+        seed=seed,
+        predictions=pd.concat(frames, ignore_index=True),
+        fold_train_speakers={s: frozenset(t) | controls for s, t in fold_train_speakers.items()},
+    )
+
+
+def save_loso_run(frames, fold_train_speakers: dict, control_speakers, seed: int,
+                  out_dir: Path) -> Path:
+    """
+    Validate and save the Phase C run for src.eval.io.load_run. If validation
+    fails, the raw predictions are kept first: eight GPU folds are expensive.
+    """
+    out_dir = Path(out_dir)
+    try:
+        run = build_loso_run(frames, fold_train_speakers, control_speakers, seed)
+    except EvalValidationError:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = out_dir / UNVALIDATED_PREDICTIONS
+        pd.concat(frames, ignore_index=True).to_csv(raw_path, index=False)
+        print(f"Eval-harness validation failed; raw predictions kept at {raw_path}")
+        raise
+    save_run(run, out_dir)
+    return out_dir
 
 
 @lru_cache(maxsize=1)
@@ -201,7 +265,7 @@ def phase_a_training(
             best_state_dict_a = {k: v.cpu().clone() for k, v in phase_a_model.state_dict().items()}
     
     # Save Phase A checkpoint
-    phase_a_checkpoint_path = config.RUNS_DIR / 'phase_a_control_pretrained.pt'
+    phase_a_checkpoint_path = seed_dir(args.seed) / 'phase_a_control_pretrained.pt'
     torch.save({
         'model_state_dict': best_state_dict_a,
         'train_acc': best_train_acc_a,
@@ -327,7 +391,7 @@ def phase_b_training(
             best_state_dict_b = {k: v.cpu().clone() for k, v in phase_b_model.state_dict().items()}
     
     # Save Phase B checkpoint (curriculum-trained model)
-    phase_b_checkpoint_path = checkpoint_path or config.RUNS_DIR / 'phase_b_curriculum_trained.pt'
+    phase_b_checkpoint_path = checkpoint_path or seed_dir(args.seed) / 'phase_b_curriculum_trained.pt'
     torch.save({
         'model_state_dict': best_state_dict_b,
         'train_acc': best_train_acc_b,
@@ -437,8 +501,11 @@ def phase_c_loso_evaluation(
         'test_samples': [],
         'all_preds': [],
         'all_labels': [],
-        'all_speaker_ids': []
+        'all_speaker_ids': [],
+        'predictions': [],           # eval-harness rows, one frame per fold
+        'fold_train_speakers': {},   # held-out speaker -> dysarthric training speakers
     }
+    id2label = {idx: label for label, idx in label2id.items()}
     
     for fold_idx, test_speaker in enumerate(dysarthric_speakers):
         print(f"\n{'='*60}")
@@ -456,7 +523,7 @@ def phase_c_loso_evaluation(
         print(f"  Train samples: {len(fold_train_df)}, Test samples: {len(fold_test_df)}")
         
         # Train this fold's model from Phase A, without the held-out speaker
-        fold_model_path = config.RUNS_DIR / f'curriculum_fold{fold_idx + 1}_{test_speaker}.pt'
+        fold_model_path = seed_dir(args.seed) / f'curriculum_fold{fold_idx + 1}_{test_speaker}.pt'
         phase_b_training(
             model_dir, fold_train_df, label2id, feature_extractor, device,
             phase_a_checkpoint_path, args, checkpoint_path=fold_model_path
@@ -482,6 +549,9 @@ def phase_c_loso_evaluation(
         cv_results['all_preds'].extend(test_preds)
         cv_results['all_labels'].extend(test_labels)
         cv_results['all_speaker_ids'].extend(test_speakers)
+        cv_results['predictions'].append(
+            fold_predictions(fold_test_df, test_preds, test_labels, id2label))
+        cv_results['fold_train_speakers'][test_speaker] = frozenset(fold_train_df['speaker_id'])
     
     print("\n" + "=" * 60)
     print("PHASE C: LOSO EVALUATION COMPLETE")
@@ -581,7 +651,7 @@ def main():
     # Create output directories
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     config.MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    config.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    seed_dir(args.seed).mkdir(parents=True, exist_ok=True)
     
     # =========================================================================
     # DATA PREPARATION
@@ -709,6 +779,11 @@ def main():
             model_dir, dysarthric_df, label2id, feature_extractor, device,
             phase_a_checkpoint_path, args
         )
+        eval_dir = save_loso_run(
+            cv_results['predictions'], cv_results['fold_train_speakers'], control_speakers,
+            args.seed, seed_dir(args.seed) / 'eval'
+        )
+        print(f"\nEval-harness run saved to {eval_dir}")
         
         # Print results summary
         print_results_summary(cv_results, phase_a_acc, phase_b_acc)
@@ -719,7 +794,7 @@ def main():
         print(f"\nPhase A training accuracy (control, augmented): {phase_a_acc:.4f}")
         print(f"Phase B training accuracy (dysarthric, augmented): {phase_b_acc:.4f}")
         print("No held-out evaluation was run (Phase C skipped).")
-        print(f"\nCheckpoints saved to: {config.RUNS_DIR}")
+        print(f"\nCheckpoints saved to: {seed_dir(args.seed)}")
     
     print("\nDone!")
 

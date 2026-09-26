@@ -152,11 +152,14 @@ python scripts/train.py \
     --skip-phase-c            # Skip LOSO evaluation
 ```
 
-**Output artifacts:**
-- `outputs/phase_a_control_pretrained.pt` - Phase A checkpoint
-- `runs/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
-- `outputs/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C (never trained on `{speaker}`)
-- `outputs/curriculum_cv_results.csv` - Cross-validation results
+Run it once per seed (`--seed 0`, `--seed 1`, `--seed 2`); results are reported over at least 3 seeds.
+
+**Output artifacts** (each seed has its own `runs/hubert-large/seed{K}/`, so seeds never overwrite each other):
+- `runs/hubert-large/seed{K}/phase_a_control_pretrained.pt` - Phase A checkpoint
+- `runs/hubert-large/seed{K}/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
+- `runs/hubert-large/seed{K}/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C (never trained on `{speaker}`)
+- `runs/hubert-large/seed{K}/eval/` - Phase C predictions for the evaluation harness (`src.eval.io.load_run`)
+- `outputs/curriculum_cv_results.csv` - Cross-validation results (last seed run)
 - `outputs/curriculum_cv_results.json` - JSON format results
 - `outputs/label_mapping.json` - Label encoding
 
