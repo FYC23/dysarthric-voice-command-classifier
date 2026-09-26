@@ -18,6 +18,7 @@ from transformers import Wav2Vec2FeatureExtractor
 from ..audio import extract_word, prepare_waveform
 from .noise import NoiseBank
 from .torgo_augment import DEFAULT_TORGO_AUG, TorgoAugParams, augment_word
+from .worker_rng import WorkerRng
 
 
 class TORGOCommandDataset(Dataset):
@@ -52,8 +53,7 @@ class TORGOCommandDataset(Dataset):
         self.augment = augment
         self.noise = noise
         self.aug_params = aug_params
-        self._rng: Optional[np.random.Generator] = None
-        self._rng_seed: Optional[int] = None
+        self._worker_rng = WorkerRng()
 
     def __len__(self) -> int:
         return len(self.df)
@@ -82,11 +82,7 @@ class TORGOCommandDataset(Dataset):
         copied in from the main process is replaced, not reused. With
         num_workers=0, set_seed() makes the augmentation reproducible.
         """
-        seed = torch.initial_seed()
-        if self._rng is None or self._rng_seed != seed:
-            self._rng = np.random.default_rng(seed % 2**32)
-            self._rng_seed = seed
-        return self._rng
+        return self._worker_rng.get()
 
     def _featurize(self, audio: np.ndarray) -> torch.Tensor:
         if self.feature_extractor is None:

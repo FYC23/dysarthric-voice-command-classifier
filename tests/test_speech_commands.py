@@ -7,12 +7,15 @@ import shutil
 
 import numpy as np
 import pytest
+import torch
 
-from src.audio import DEFAULT_VAD, extract_word
+from src.audio import DEFAULT_VAD, extract_word, prepare_waveform
+from src.data.noise import NoiseBank
 from src.data.speech_commands import (
-    CLASSES, SILENCE, SILENCE_ID, WordCache, ensure_word_cache, read_wav, scan_split,
-    silence_count, silence_eval_windows,
+    CLASSES, SILENCE, SILENCE_ID, SpeechCommandsEvalSet, SpeechCommandsTrainSet, WordCache,
+    ensure_word_cache, read_wav, scan_split, silence_count, silence_eval_windows,
 )
+from src.data.worker_rng import WorkerRng
 from src.eval.constants import SPEECH_COMMANDS_V2_WORDS
 
 SR = 16000
@@ -160,3 +163,63 @@ def test_silence_eval_windows_need_the_silence_folder(fake_speech_commands):
     shutil.rmtree(fake_speech_commands / "test" / SILENCE)
     with pytest.raises(FileNotFoundError, match="download_speech_commands"):
         silence_eval_windows(fake_speech_commands, "test", WINDOW, SR)
+
+
+@pytest.fixture
+def train_words(fake_speech_commands, tmp_path):
+    return WordCache(ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR))
+
+
+@pytest.fixture
+def noise():
+    return NoiseBank([np.random.default_rng(0).normal(0, 0.1, 48000).astype(np.float32)])
+
+
+def test_train_set_is_every_word_then_fresh_silence(train_words, noise):
+    ds = SpeechCommandsTrainSet(train_words, noise, WINDOW, n_silence=2)
+    assert len(ds) == 72
+    word, label = ds[0]
+    assert label == int(train_words.labels[0])
+    assert word.shape == (WINDOW,) and word.dtype == torch.float32
+    silence, label = ds[71]
+    assert label == SILENCE_ID and silence.shape == (WINDOW,)
+    assert torch.count_nonzero(silence) > 0.99 * WINDOW
+    again, _ = ds[71]
+    assert not torch.equal(silence, again)  # a new draw on every access
+
+
+def test_train_set_rejects_negative_silence(train_words, noise):
+    with pytest.raises(ValueError, match="silence"):
+        SpeechCommandsTrainSet(train_words, noise, WINDOW, n_silence=-1)
+
+
+def test_eval_items_are_the_prepared_waveform(fake_speech_commands, tmp_path):
+    words = WordCache(ensure_word_cache(fake_speech_commands, "validation", tmp_path / "c", SR))
+    windows = silence_eval_windows(fake_speech_commands, "validation", WINDOW, SR)
+    ds = SpeechCommandsEvalSet(words, windows, WINDOW)
+    assert len(ds) == len(words) + len(windows)
+    df = scan_split(fake_speech_commands, "validation")
+    for i in (0, 50):
+        audio, label = ds[i]
+        expected = prepare_waveform(read_wav(df.file_path[i], SR), SR, WINDOW)
+        np.testing.assert_allclose(audio.numpy(), expected, atol=1 / 32767)
+        assert label == df.label_id[i]
+    audio, label = ds[len(words)]
+    assert label == SILENCE_ID
+    np.testing.assert_array_equal(audio.numpy(), windows[0])
+    assert torch.equal(ds[0][0], ds[0][0])  # deterministic
+
+
+def test_eval_set_rejects_silence_of_the_wrong_length(train_words):
+    with pytest.raises(ValueError, match="length"):
+        SpeechCommandsEvalSet(train_words, [np.zeros(100, np.float32)], WINDOW)
+
+
+def test_worker_rng_reseeds_only_when_the_process_seed_changes():
+    rng = WorkerRng()
+    torch.manual_seed(1)
+    first = rng.get()
+    torch.manual_seed(1)
+    assert rng.get() is first
+    torch.manual_seed(2)
+    assert rng.get() is not first

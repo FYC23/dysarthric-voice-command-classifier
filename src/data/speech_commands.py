@@ -16,15 +16,22 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import soundfile as sf
+import torch
+from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 
-from ..audio import DEFAULT_VAD, extract_word, remove_dc
+from ..audio import DEFAULT_VAD, extract_word, fit_to_length, remove_dc
 from ..eval.constants import SPEECH_COMMANDS_V2_WORDS
+from .noise import NoiseBank
+from .speech_commands_augment import (
+    DEFAULT_BCRESNET_AUG, BCResNetAugParams, augment_word_in_window, make_silence,
+)
+from .worker_rng import WorkerRng
 
 SILENCE = "_silence_"
 CLASSES: Tuple[str, ...] = tuple(SPEECH_COMMANDS_V2_WORDS) + (SILENCE,)
@@ -208,3 +215,53 @@ def silence_eval_windows(root: Path, split: str, length: int, sr: int) -> List[n
         else:
             windows.append(np.resize(audio, length).astype(np.float32))
     return windows
+
+
+class SpeechCommandsTrainSet(Dataset):
+    """
+    Every word clip as a fresh random 2 s view, then `n_silence` _silence_
+    examples drawn fresh on every access (noise over the whole window).
+    """
+
+    def __init__(self, words: WordCache, noise: NoiseBank, length: int, n_silence: int,
+                 params: BCResNetAugParams = DEFAULT_BCRESNET_AUG):
+        if n_silence < 0:
+            raise ValueError(f"n_silence must be >= 0, got {n_silence}")
+        self.words = words
+        self.noise = noise
+        self.length = length
+        self.n_silence = n_silence
+        self.params = params
+        self._rng = WorkerRng()
+
+    def __len__(self) -> int:
+        return len(self.words) + self.n_silence
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
+        rng = self._rng.get()
+        if index < len(self.words):
+            audio = augment_word_in_window(self.words.word(index), self.length, rng,
+                                           self.noise, self.params)
+            return torch.from_numpy(audio), int(self.words.labels[index])
+        return torch.from_numpy(make_silence(self.length, rng, self.noise, self.params)), SILENCE_ID
+
+
+class SpeechCommandsEvalSet(Dataset):
+    """Word clips centred in the window (prepare_waveform), then fixed silence windows."""
+
+    def __init__(self, words: WordCache, silence: Sequence[np.ndarray], length: int):
+        wrong = [len(w) for w in silence if len(w) != length]
+        if wrong:
+            raise ValueError(f"silence windows must have length {length}, got {wrong[:3]}")
+        self.words = words
+        self.silence = tuple(np.asarray(w, dtype=np.float32) for w in silence)
+        self.length = length
+
+    def __len__(self) -> int:
+        return len(self.words) + len(self.silence)
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, int]:
+        if index < len(self.words):
+            audio = fit_to_length(self.words.word(index), self.length).astype(np.float32)
+            return torch.from_numpy(audio), int(self.words.labels[index])
+        return torch.from_numpy(self.silence[index - len(self.words)].copy()), SILENCE_ID
