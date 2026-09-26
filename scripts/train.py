@@ -38,10 +38,10 @@ from modelscope import snapshot_download
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import config
-from src.data.preprocessing import scan_torgo_dataset, create_label_mapping
+from src.data.preprocessing import create_label_mapping
 from src.data.dataset import TORGOCommandDataset, collate_fn
 from src.data.noise import NoiseBank
-from src.data.segments import apply_segment_labels, load_segment_labels, measure_kept_lengths
+from src.data.segments import evaluation_clips, load_torgo_samples
 from src.eval.io import save_run
 from src.eval.schema import PRED_COLUMNS, EvalValidationError, Run
 from src.model.architecture import HuBERTForCommandClassification
@@ -80,6 +80,16 @@ def fold_predictions(test_df: pd.DataFrame, pred_ids, label_ids, id2label: dict)
                          "cannot attach them to clips")
     clip_columns = [c for c in PRED_COLUMNS if c != 'pred']
     return clips[clip_columns].assign(pred=[id2label[int(i)] for i in pred_ids])
+
+
+def split_fold(dysarthric_df: pd.DataFrame, test_speaker: str) -> tuple:
+    """
+    (train, test) rows for one LOSO fold. Training keeps every labelled word
+    attempt; the test side scores each recording once (its first attempt), as
+    every model in the eval harness does.
+    """
+    held_out = dysarthric_df['speaker_id'] == test_speaker
+    return dysarthric_df[~held_out].copy(), evaluation_clips(dysarthric_df[held_out]).copy()
 
 
 def build_loso_run(frames, fold_train_speakers: dict, control_speakers, seed: int) -> Run:
@@ -513,8 +523,7 @@ def phase_c_loso_evaluation(
         print(f"{'='*60}")
         
         # Split dysarthric data for this fold
-        fold_train_df = dysarthric_df[dysarthric_df['speaker_id'] != test_speaker].copy()
-        fold_test_df = dysarthric_df[dysarthric_df['speaker_id'] == test_speaker].copy()
+        fold_train_df, fold_test_df = split_fold(dysarthric_df, test_speaker)
         assert test_speaker not in set(fold_train_df['speaker_id']), \
             f"Held-out speaker {test_speaker} leaked into fold training data"
         
@@ -661,23 +670,16 @@ def main():
     print("=" * 60)
     
     print("\nScanning TORGO dataset...")
-    df = scan_torgo_dataset(config.TORGO_ROOT, config.TARGET_COMMANDS,
-                            config.MIC_TYPES, config.MIN_AUDIO_DURATION,
-                            config.MAX_AUDIO_DURATION)
+    # Clips still longer than the window after trimming are cropped to
+    # hand-labelled word segments; unlabelled ones are dropped (src/data/segments.py)
+    result = load_torgo_samples(config)
+    df = result.samples
 
     print(f"\nFound {len(df)} samples matching target commands")
     print(f"Per mic: {df['mic'].value_counts().to_dict()}")
     print(f"Unique speakers: {df['speaker_id'].nunique()}")
     print(f"Unique labels: {df['label'].nunique()}")
-
-    # Clips still longer than the window after trimming are cropped to
-    # hand-labelled word segments; unlabelled ones are dropped (src/data/segments.py)
-    labels = load_segment_labels(config.TORGO_MANUAL_SEGMENT_LABELS)
-    result = apply_segment_labels(measure_kept_lengths(df), labels,
-                                  config.TORGO_ROOT, config.MAX_AUDIO_LENGTH)
-    df = result.samples
-    print(f"\nSegment labels: {len(labels)} clips labelled, "
-          f"{df['seg_start'].notna().sum()} samples cropped to a labelled word")
+    print(f"{df['seg_start'].notna().sum()} samples cropped to a labelled word")
     if len(result.dropped):
         print(f"Dropped {len(result.dropped)} clips: {result.dropped['reason'].value_counts().to_dict()}")
         for _, r in result.dropped[result.dropped['reason'] == 'unlabeled_over_window'].iterrows():

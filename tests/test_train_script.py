@@ -132,3 +132,21 @@ def test_each_seed_gets_its_own_run_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(train.config, "RUNS_DIR", tmp_path)
     assert train.seed_dir(0) != train.seed_dir(1)
     assert train.seed_dir(0).parent.parent == tmp_path
+
+
+def test_fold_test_set_scores_each_recording_once_but_training_keeps_every_attempt():
+    from src.eval.schema import CLIP_KEY
+
+    train = load_train_script()
+    base = {"session": "Session1", "mic": "wav_arrayMic", "label": "yes", "label_id": 1,
+            "file_path": "/x.wav"}
+    df = pd.DataFrame([
+        {**base, "speaker_id": "F04", "utterance_id": "0067", "seg_start": 3.8, "seg_end": 4.1},
+        {**base, "speaker_id": "F04", "utterance_id": "0067", "seg_start": 1.0, "seg_end": 1.6},
+        {**base, "speaker_id": "M05", "utterance_id": "0093", "seg_start": 0.5, "seg_end": 0.9},
+        {**base, "speaker_id": "M05", "utterance_id": "0093", "seg_start": 2.0, "seg_end": 2.4},
+    ])
+    train_df, test_df = train.split_fold(df, "F04")
+    assert test_df.seg_start.tolist() == [1.0]
+    assert not test_df.duplicated(list(CLIP_KEY)).any()
+    assert len(train_df) == 2 and set(train_df.speaker_id) == {"M05"}
