@@ -17,7 +17,7 @@ import torch
 from torch import nn
 
 from src.eval.cost import count_macs, count_params
-from src.model.bcresnet import BCResNet
+from src.model.bcresnet import HEAD_PREFIX, BCResNet, load_pretrained_body
 
 ONE_SECOND = torch.zeros(1, 1, 40, 101)
 TWO_SECONDS = torch.zeros(1, 1, 40, 201)
@@ -67,3 +67,36 @@ def test_macs_double_at_our_two_second_window():
     model = BCResNet(tau=8, num_classes=20)
     ratio = count_macs(model, TWO_SECONDS) / count_macs(model, ONE_SECOND)
     assert ratio == pytest.approx(201 / 101, rel=0.02)
+
+
+class TestPretrainedBody:
+    def test_head_is_the_final_class_conv(self):
+        model = BCResNet(tau=1, num_classes=20)
+        assert model.head is model.classifier[-1]
+        assert isinstance(model.head, nn.Conv2d) and model.head.out_channels == 20
+        head_keys = {k for k in model.state_dict() if k.startswith(HEAD_PREFIX)}
+        assert head_keys == {HEAD_PREFIX + "weight", HEAD_PREFIX + "bias"}
+
+    def test_body_loads_unchanged_and_head_keeps_its_fresh_init(self):
+        torch.manual_seed(0)
+        pretrained = BCResNet(tau=1, num_classes=36)
+        torch.manual_seed(1)
+        model = BCResNet(tau=1, num_classes=20)
+        fresh_head = model.head.weight.detach().clone()
+        load_pretrained_body(model, pretrained.state_dict())
+        loaded = model.state_dict()
+        for key, value in pretrained.state_dict().items():
+            if not key.startswith(HEAD_PREFIX):
+                assert torch.equal(loaded[key], value), key
+        assert torch.equal(model.head.weight, fresh_head)
+
+    def test_other_width_is_refused(self):
+        with pytest.raises(ValueError, match="body"):
+            load_pretrained_body(BCResNet(tau=1, num_classes=20),
+                                 BCResNet(tau=2, num_classes=36).state_dict())
+
+    def test_missing_body_weights_are_refused(self):
+        state = BCResNet(tau=1, num_classes=36).state_dict()
+        state.pop(next(k for k in state if not k.startswith(HEAD_PREFIX)))
+        with pytest.raises(ValueError, match="missing"):
+            load_pretrained_body(BCResNet(tau=1, num_classes=20), state)

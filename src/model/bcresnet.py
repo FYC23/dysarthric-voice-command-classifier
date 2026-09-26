@@ -8,7 +8,7 @@ Input: (batch, 1, 40 mel bins, frames). BC-ResNet-tau scales every channel
 width of BC-ResNet-1 by tau.
 """
 
-from typing import List, Tuple
+from typing import List, Mapping, Tuple
 
 import torch
 import torch.nn as nn
@@ -19,6 +19,7 @@ SSN_SUBBANDS = 5
 DROPOUT = 0.1
 STAGE_BLOCKS = (2, 2, 4, 4)
 STRIDED_STAGES = (1, 2)  # stages whose first block halves the frequency axis
+HEAD_PREFIX = "classifier.5."  # state_dict prefix of the final class conv (BCResNet.head)
 
 
 class SubSpectralNorm(nn.Module):
@@ -97,7 +98,7 @@ class BCResNet(nn.Module):
     def __init__(self, tau: float = 1, num_classes: int = 12):
         super().__init__()
         w = _stage_widths(tau)
-        self.head = nn.Sequential(
+        self.stem = nn.Sequential(
             nn.Conv2d(1, w[0], 5, stride=(2, 1), padding=2, bias=False),
             nn.BatchNorm2d(w[0]),
             nn.ReLU(inplace=True),
@@ -113,5 +114,27 @@ class BCResNet(nn.Module):
             nn.Conv2d(w[5], num_classes, 1),
         )
 
+    @property
+    def head(self) -> nn.Conv2d:
+        """The final 1x1 conv: the only layer whose shape depends on the class count."""
+        return self.classifier[-1]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self.blocks(self.head(x))).flatten(1)
+        return self.classifier(self.blocks(self.stem(x))).flatten(1)
+
+
+def load_pretrained_body(model: BCResNet, state_dict: Mapping[str, torch.Tensor]) -> None:
+    """
+    Copy every pretrained weight except the class head into `model`, in place.
+    The head keeps its fresh initialisation (stage 2 of the training design).
+    """
+    body = {k: v for k, v in state_dict.items() if not k.startswith(HEAD_PREFIX)}
+    try:
+        missing, unexpected = model.load_state_dict(body, strict=False)
+    except RuntimeError as err:  # size mismatch, e.g. another width
+        raise ValueError(f"pretrained weights do not fit this BC-ResNet body "
+                         f"(another width?): {err}") from err
+    missing_body = sorted(k for k in missing if not k.startswith(HEAD_PREFIX))
+    if missing_body or unexpected:
+        raise ValueError(f"pretrained weights do not fit this BC-ResNet body: "
+                         f"missing {missing_body}, unexpected {sorted(unexpected)}")
