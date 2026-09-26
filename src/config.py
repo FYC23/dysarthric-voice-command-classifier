@@ -29,7 +29,8 @@ class Config:
     RUNS_DIR = REPO_ROOT / "runs"        # Training checkpoints (large, not committed)
     OUTPUT_DIR = REPO_ROOT / "outputs"   # Results tables and plots (committed)
     LABELS_DIR = DATA_DIR / "labels"     # Hand labels (committed: can't be regenerated)
-    TORGO_SEGMENT_LABELS = LABELS_DIR / "torgo_segments.json"  # word locations in long clips
+    # Hand-made word / partial / non-speech segments for the 36 longest clips
+    TORGO_MANUAL_SEGMENT_LABELS = LABELS_DIR / "torgo_manual_segment_labels.json"
     
     # -------------------------------------------------------------------------
     # TARGET COMMANDS

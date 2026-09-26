@@ -4,7 +4,7 @@ Hand-labelled segments for TORGO clips that don't fit the model window.
 Dysarthric clips often contain struggle sounds, breaths and partial attempts
 before (or after) the word. For clips still longer than the window after
 silence trimming, a human marks where the word is (see the segment labeler,
-which exports data/labels/torgo_segments.json). This module turns those labels
+which exports data/labels/torgo_manual_segment_labels.json). This module turns those labels
 into training rows:
 
 - each "word" segment becomes its own sample (two complete attempts -> two rows)

@@ -592,7 +592,7 @@ def main():
 
     # Clips still longer than the window after trimming are cropped to
     # hand-labelled word segments; unlabelled ones are dropped (src/data/segments.py)
-    labels = load_segment_labels(config.TORGO_SEGMENT_LABELS)
+    labels = load_segment_labels(config.TORGO_MANUAL_SEGMENT_LABELS)
     result = apply_segment_labels(measure_kept_lengths(df), labels,
                                   config.TORGO_ROOT, config.MAX_AUDIO_LENGTH)
     df = result.samples
