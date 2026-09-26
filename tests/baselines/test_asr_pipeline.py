@@ -178,3 +178,10 @@ def test_cost_counts_the_model_and_round_trips(tmp_path):
     assert (profile.params, profile.macs, profile.input_seconds) == (55, 50, 2.0)
     save_cost(profile, tmp_path / COST_FILE)
     assert load_cost(tmp_path / COST_FILE) == profile
+
+
+def test_cost_files_are_shared_with_the_eval_harness():
+    from src.eval import cost
+
+    assert load_cost is cost.load_cost and save_cost is cost.save_cost
+    assert COST_FILE == cost.COST_FILE

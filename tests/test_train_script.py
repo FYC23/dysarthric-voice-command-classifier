@@ -44,89 +44,6 @@ def test_training_noise_bank_fails_fast_without_speech_commands(monkeypatch, tmp
         train.training_noise_bank()
 
 
-# --- Phase C output in the eval harness format (src/eval) -------------------
-
-DYSARTHRIC = ("F01", "F03", "F04", "M01", "M02", "M03", "M04", "M05")
-CONTROLS = ("FC01", "MC01")
-LABEL2ID = {"no": 0, "yes": 1}
-ID2LABEL = {0: "no", 1: "yes"}
-
-
-def fold_test_df(speaker):
-    """Two clips of one speaker: 'yes' on the array mic, 'no' on the head mic."""
-    return pd.DataFrame({
-        "file_path": [f"/x/{speaker}/a.wav", f"/x/{speaker}/b.wav"],
-        "speaker_id": [speaker, speaker],
-        "session": ["Session1", "Session2"],
-        "utterance_id": ["0001", "0001"],
-        "mic": ["wav_arrayMic", "wav_headMic"],
-        "label": ["yes", "no"],
-        "label_id": [1, 0],
-    }, index=[40, 7])  # a filtered frame keeps its original index
-
-
-def test_fold_predictions_pair_each_clip_with_its_predicted_word():
-    train = load_train_script()
-    rows = train.fold_predictions(fold_test_df("M04"), pred_ids=[1, 1], label_ids=[1, 0],
-                                  id2label=ID2LABEL)
-    assert rows.to_dict("records") == [
-        {"speaker_id": "M04", "session": "Session1", "utterance_id": "0001",
-         "mic": "wav_arrayMic", "label": "yes", "pred": "yes"},
-        {"speaker_id": "M04", "session": "Session2", "utterance_id": "0001",
-         "mic": "wav_headMic", "label": "no", "pred": "yes"},
-    ]
-
-
-def test_fold_predictions_refuse_labels_out_of_order():
-    # If the DataLoader order ever stopped matching the table, predictions would
-    # be attached to the wrong clips; the returned labels expose it.
-    train = load_train_script()
-    with pytest.raises(ValueError, match="order"):
-        train.fold_predictions(fold_test_df("M04"), pred_ids=[1, 1], label_ids=[0, 1],
-                               id2label=ID2LABEL)
-
-
-def loso_inputs():
-    frames = [fold_test_df(s).pipe(lambda d: d.assign(pred=d["label"]))
-              [["speaker_id", "session", "utterance_id", "mic", "label", "pred"]]
-              for s in DYSARTHRIC]
-    folds = {s: frozenset(set(DYSARTHRIC) - {s}) for s in DYSARTHRIC}
-    return frames, folds
-
-
-def test_loso_run_records_controls_in_every_fold_and_validates():
-    train = load_train_script()
-    frames, folds = loso_inputs()
-    run = train.build_loso_run(frames, folds, CONTROLS, seed=3)
-    assert run.seed == 3 and not run.zero_shot
-    assert run.fold_train_speakers["M04"] == frozenset(set(DYSARTHRIC) - {"M04"}) | set(CONTROLS)
-    assert len(run.predictions) == 16
-
-
-def test_saved_loso_run_loads_back_through_the_harness(tmp_path):
-    from src.eval.io import load_run
-
-    train = load_train_script()
-    frames, folds = loso_inputs()
-    out = train.save_loso_run(frames, folds, CONTROLS, seed=3, out_dir=tmp_path / "eval")
-    loaded = load_run(out)
-    assert loaded.seed == 3
-    assert loaded.model == train.RUN_NAME
-
-
-def test_invalid_loso_run_keeps_raw_predictions_before_failing(tmp_path):
-    # Eight GPU folds must not be lost to a validation error: keep the raw rows
-    from src.eval.schema import EvalValidationError
-
-    train = load_train_script()
-    frames, folds = loso_inputs()
-    folds["M04"] = folds["M04"] | {"M04"}  # leak
-    with pytest.raises(EvalValidationError, match="M04"):
-        train.save_loso_run(frames, folds, CONTROLS, seed=3, out_dir=tmp_path / "eval")
-    raw = pd.read_csv(tmp_path / "eval" / "predictions_unvalidated.csv")
-    assert len(raw) == 16
-
-
 def test_each_seed_gets_its_own_run_directory(monkeypatch, tmp_path):
     train = load_train_script()
     monkeypatch.setattr(train.config, "RUNS_DIR", tmp_path)
@@ -134,19 +51,9 @@ def test_each_seed_gets_its_own_run_directory(monkeypatch, tmp_path):
     assert train.seed_dir(0).parent.parent == tmp_path
 
 
-def test_fold_test_set_scores_each_recording_once_but_training_keeps_every_attempt():
-    from src.eval.schema import CLIP_KEY
+def test_hubert_script_uses_the_shared_loso_helpers():
+    from src.training import loso
 
     train = load_train_script()
-    base = {"session": "Session1", "mic": "wav_arrayMic", "label": "yes", "label_id": 1,
-            "file_path": "/x.wav"}
-    df = pd.DataFrame([
-        {**base, "speaker_id": "F04", "utterance_id": "0067", "seg_start": 3.8, "seg_end": 4.1},
-        {**base, "speaker_id": "F04", "utterance_id": "0067", "seg_start": 1.0, "seg_end": 1.6},
-        {**base, "speaker_id": "M05", "utterance_id": "0093", "seg_start": 0.5, "seg_end": 0.9},
-        {**base, "speaker_id": "M05", "utterance_id": "0093", "seg_start": 2.0, "seg_end": 2.4},
-    ])
-    train_df, test_df = train.split_fold(df, "F04")
-    assert test_df.seg_start.tolist() == [1.0]
-    assert not test_df.duplicated(list(CLIP_KEY)).any()
-    assert len(train_df) == 2 and set(train_df.speaker_id) == {"M05"}
+    for name in ("split_fold", "fold_predictions", "save_loso_run", "set_seed"):
+        assert getattr(train, name) is getattr(loso, name), name

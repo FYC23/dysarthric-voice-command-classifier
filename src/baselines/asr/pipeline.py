@@ -7,8 +7,6 @@ the model. Each model yields two zero-shot runs, <model>-strict and
 <model>-lenient, and one cost profile.
 """
 
-import dataclasses
-import json
 from pathlib import Path
 from typing import Callable, List
 
@@ -22,13 +20,12 @@ from src.baselines.asr.transcribers import Transcriber
 from src.config import Config
 from src.data.dataset import TORGOCommandDataset
 from src.eval.constants import ARRAY_MIC, DYSARTHRIC_SPEAKERS
-from src.eval.cost import CostProfile, count_macs_of, count_params
+from src.eval.cost import COST_FILE, CostProfile, count_macs_of, count_params, load_cost, save_cost
 from src.eval.io import save_run
 from src.eval.schema import CLIP_KEY, PRED_COLUMNS, Run
 
 SEED = 0  # greedy decoding is deterministic: one run per model
 TRANSCRIPTS_FILE = "transcripts.csv"
-COST_FILE = "cost.json"
 # A clip's audio depends on its hand-labelled segment too; if the segment
 # changes, the cached transcript is for different audio and is not reused.
 CACHE_KEY = list(CLIP_KEY) + ["segment"]
@@ -114,15 +111,6 @@ def transcription_cost(transcriber: Transcriber, window: np.ndarray) -> CostProf
         input_seconds=len(window) / Config.SAMPLE_RATE,
         note=transcriber.cost_note,
     )
-
-
-def save_cost(profile: CostProfile, path: Path) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(dataclasses.asdict(profile), indent=2))
-
-
-def load_cost(path: Path) -> CostProfile:
-    return CostProfile(**json.loads(Path(path).read_text()))
 
 
 def run_baseline(model: str, clips: pd.DataFrame, get_transcriber: Callable[[], Transcriber],

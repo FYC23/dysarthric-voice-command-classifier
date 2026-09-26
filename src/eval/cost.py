@@ -10,7 +10,10 @@ linearly with the number of time frames, so the paper's 1 s figures double
 at our 2 s window.
 """
 
+import dataclasses
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import torch
@@ -71,3 +74,16 @@ def profile_model(model: nn.Module, example_input: torch.Tensor, input_seconds: 
                   note: str = "") -> CostProfile:
     return CostProfile(params=count_params(model), macs=count_macs(model, example_input),
                        input_seconds=input_seconds, note=note)
+
+
+COST_FILE = "cost.json"  # one per model, at runs/<model>/cost.json
+
+
+def save_cost(profile: CostProfile, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dataclasses.asdict(profile), indent=2))
+
+
+def load_cost(path: Path) -> CostProfile:
+    return CostProfile(**json.loads(Path(path).read_text()))

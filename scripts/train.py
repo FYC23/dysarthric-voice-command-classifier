@@ -21,7 +21,6 @@ Usage:
 import argparse
 import json
 from functools import lru_cache
-import random
 import sys
 from pathlib import Path
 from typing import Optional
@@ -29,7 +28,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
 from transformers import Wav2Vec2FeatureExtractor
 from modelscope import snapshot_download
@@ -41,89 +39,18 @@ from src.config import config
 from src.data.preprocessing import create_label_mapping
 from src.data.dataset import TORGOCommandDataset, collate_fn
 from src.data.noise import NoiseBank
-from src.data.segments import evaluation_clips, load_torgo_samples
-from src.eval.io import save_run
-from src.eval.schema import PRED_COLUMNS, EvalValidationError, Run
+from src.data.segments import load_torgo_samples
 from src.model.architecture import HuBERTForCommandClassification
+from src.training.loso import balanced_class_weights, fold_predictions, save_loso_run, set_seed, split_fold
 from src.training.trainer import train_epoch, validate, save_checkpoint
 
 
-def set_seed(seed: int = 42):
-    """
-    Set random seeds for reproducibility across Python, NumPy, and PyTorch.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
 RUN_NAME = "hubert-large"  # the model's name in eval-harness tables
-UNVALIDATED_PREDICTIONS = "predictions_unvalidated.csv"
 
 
 def seed_dir(seed: int) -> Path:
     """Checkpoints and evaluation output of one seed, so seeds never overwrite each other."""
     return config.RUNS_DIR / RUN_NAME / f"seed{seed}"
-
-
-def fold_predictions(test_df: pd.DataFrame, pred_ids, label_ids, id2label: dict) -> pd.DataFrame:
-    """
-    Eval-harness rows for one fold: each clip's identity from test_df plus its
-    predicted word. evaluate_checkpoint does not shuffle, so predictions come
-    back in table order; the returned labels are checked to prove it.
-    """
-    clips = test_df.reset_index(drop=True)
-    returned = [int(i) for i in label_ids]
-    if len(pred_ids) != len(clips) or returned != clips['label_id'].astype(int).tolist():
-        raise ValueError("predictions are not in the order of the test table; "
-                         "cannot attach them to clips")
-    clip_columns = [c for c in PRED_COLUMNS if c != 'pred']
-    return clips[clip_columns].assign(pred=[id2label[int(i)] for i in pred_ids])
-
-
-def split_fold(dysarthric_df: pd.DataFrame, test_speaker: str) -> tuple:
-    """
-    (train, test) rows for one LOSO fold. Training keeps every labelled word
-    attempt; the test side scores each recording once (its first attempt), as
-    every model in the eval harness does.
-    """
-    held_out = dysarthric_df['speaker_id'] == test_speaker
-    return dysarthric_df[~held_out].copy(), evaluation_clips(dysarthric_df[held_out]).copy()
-
-
-def build_loso_run(frames, fold_train_speakers: dict, control_speakers, seed: int) -> Run:
-    """
-    One validated eval-harness run from the Phase C folds. Every fold starts
-    from Phase A, which trained on all control speakers, so they are recorded
-    as training speakers of every fold.
-    """
-    controls = frozenset(control_speakers)
-    return Run(
-        model=RUN_NAME,
-        seed=seed,
-        predictions=pd.concat(frames, ignore_index=True),
-        fold_train_speakers={s: frozenset(t) | controls for s, t in fold_train_speakers.items()},
-    )
-
-
-def save_loso_run(frames, fold_train_speakers: dict, control_speakers, seed: int,
-                  out_dir: Path) -> Path:
-    """
-    Validate and save the Phase C run for src.eval.io.load_run. If validation
-    fails, the raw predictions are kept first: eight GPU folds are expensive.
-    """
-    out_dir = Path(out_dir)
-    try:
-        run = build_loso_run(frames, fold_train_speakers, control_speakers, seed)
-    except EvalValidationError:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        raw_path = out_dir / UNVALIDATED_PREDICTIONS
-        pd.concat(frames, ignore_index=True).to_csv(raw_path, index=False)
-        print(f"Eval-harness validation failed; raw predictions kept at {raw_path}")
-        raise
-    save_run(run, out_dir)
-    return out_dir
 
 
 @lru_cache(maxsize=1)
@@ -138,18 +65,7 @@ def get_class_weights(df: pd.DataFrame, label2id: dict, device: torch.device) ->
     
     Uses sklearn's "balanced" strategy: weight = n_samples / (n_classes * n_samples_for_class)
     """
-    train_labels = df['label_id'].values
-    classes_in_data = np.unique(train_labels)
-    weights = compute_class_weight(
-        class_weight='balanced',
-        classes=classes_in_data,
-        y=train_labels
-    )
-    # Create full weight tensor (1.0 for missing classes)
-    full_weights = np.ones(len(label2id))
-    for i, cls in enumerate(classes_in_data):
-        full_weights[cls] = weights[i]
-    return torch.tensor(full_weights, dtype=torch.float32).to(device)
+    return balanced_class_weights(df['label_id'].values, len(label2id)).to(device)
 
 
 def phase_a_training(
@@ -783,7 +699,7 @@ def main():
         )
         eval_dir = save_loso_run(
             cv_results['predictions'], cv_results['fold_train_speakers'], control_speakers,
-            args.seed, seed_dir(args.seed) / 'eval'
+            args.seed, RUN_NAME, seed_dir(args.seed) / 'eval'
         )
         print(f"\nEval-harness run saved to {eval_dir}")
         
