@@ -80,7 +80,6 @@ dysarthric-voice-cmds/
 ├── outputs/                   # Trained models and results
 ├── model_cache/               # Cached HuBERT weights
 ├── main.ipynb                 # Main training notebook
-├── FUTURE_WORK.md             # Future improvement ideas
 └── requirements.txt           # Python dependencies
 ```
 
@@ -349,12 +348,6 @@ dataset = TORGOCommandDataset(
     augment: bool = False      # Enable augmentation for training
 )
 ```
-
-## Future Work
-
-See [FUTURE_WORK.md](FUTURE_WORK.md) for planned improvements:
-- Dysarthria detection for adaptive ASR routing
-- ESPNet integration for larger-scale ASR
 
 ## Acknowledgments
 
