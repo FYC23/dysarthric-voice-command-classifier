@@ -38,6 +38,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def run_name(args: argparse.Namespace) -> str:
+    """
+    The name transcripts, cost and runs are saved under. Precision is part of
+    it when not the default, so float16 results never mix with float32 ones.
+    """
+    default_dtype = next(iter(DTYPES))
+    return args.model if args.dtype == default_dtype else f"{args.model}-{args.dtype}"
+
+
 def pct(x) -> str:
     return "—" if x is None else f"{100 * x:.1f}%"
 
@@ -52,7 +61,8 @@ def main(argv=None) -> None:
 
     get_transcriber = functools.cache(
         lambda: build_transcriber(args.model, device, DTYPES[args.dtype]))
-    runs = run_baseline(args.model, clips, get_transcriber, config.RUNS_DIR, args.batch_size)
+    name = run_name(args)
+    runs = run_baseline(name, clips, get_transcriber, config.RUNS_DIR, args.batch_size)
 
     for run in runs:
         s = summarize([run], mic=ARRAY_MIC)
@@ -60,7 +70,7 @@ def main(argv=None) -> None:
               f"[95% CI {pct(s.ci_low)}, {pct(s.ci_high)}], control {pct(s.control_headline)}")
         print("  " + ", ".join(f"{g} {pct(a)}" for g, a in s.severity.items())
               + f", oov {pct(s.oov_rate)}")
-    cost = load_cost(config.RUNS_DIR / args.model / COST_FILE)
+    cost = load_cost(config.RUNS_DIR / name / COST_FILE)
     print(f"\ncost: {cost.params:,} params, {cost.macs:,} MACs ({cost.note})")
 
 
