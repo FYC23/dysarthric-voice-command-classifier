@@ -42,3 +42,21 @@ def test_profile_reports_int8_size_as_one_byte_per_param():
     profile = profile_model(nn.Linear(1000, 1000), torch.zeros(1, 1000), input_seconds=2.0)
     assert profile == CostProfile(params=1_001_000, macs=1_000_000, input_seconds=2.0)
     assert profile.int8_mb == pytest.approx(1.001)
+
+
+class _Attention(nn.Module):
+    def forward(self, qkv):
+        return nn.functional.scaled_dot_product_attention(qkv, qkv, qkv)
+
+
+@pytest.mark.parametrize("device", [
+    "cpu",
+    pytest.param("mps", marks=pytest.mark.skipif(not torch.backends.mps.is_available(),
+                                                 reason="no MPS")),
+])
+def test_attention_matmuls_are_counted_on_every_device(device):
+    # Scores (8x4 @ 4x8) and output (8x8 @ 8x4) for 2 heads: 2 x (256 + 256).
+    # CPU and MPS dispatch SDPA to kernels torch's counter does not know; a
+    # device-dependent count would make the same model's cost differ by machine.
+    qkv = torch.zeros(1, 2, 8, 4, device=device)
+    assert count_macs(_Attention().to(device), qkv) == 2 * (8 * 4 * 8 + 8 * 8 * 4)

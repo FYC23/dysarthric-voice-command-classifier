@@ -15,7 +15,19 @@ from typing import Any, Callable
 
 import torch
 from torch import nn
-from torch.utils.flop_counter import FlopCounterMode
+from torch.utils.flop_counter import FlopCounterMode, sdpa_flop_count
+
+# torch's counter knows the CUDA attention kernels but not the ones CPU and
+# MPS dispatch scaled_dot_product_attention to, which it would count as 0.
+# Same formula (scores + weighted sum), so a model costs the same on any machine.
+def _attention_flops(query_shape, key_shape, value_shape, *args, out_shape=None, **kwargs) -> int:
+    return sdpa_flop_count(query_shape, key_shape, value_shape)
+
+
+_ATTENTION_OPS = {
+    torch.ops.aten._scaled_dot_product_flash_attention_for_cpu: _attention_flops,
+    torch.ops.aten._scaled_dot_product_attention_math_for_mps: _attention_flops,
+}
 
 
 @dataclass(frozen=True)
@@ -38,7 +50,7 @@ def count_params(model: nn.Module) -> int:
 
 def count_macs_of(fn: Callable[[], Any]) -> int:
     """MACs of whatever `fn` runs, e.g. a full ASR decode; caller sets eval mode."""
-    with torch.no_grad(), FlopCounterMode(display=False) as counter:
+    with torch.no_grad(), FlopCounterMode(display=False, custom_mapping=_ATTENTION_OPS) as counter:
         fn()
     return counter.get_total_flops() // 2
 
