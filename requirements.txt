@@ -9,4 +9,3 @@ matplotlib
 seaborn
 tqdm
 audiomentations
-gradio>=4.0.0

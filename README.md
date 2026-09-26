@@ -10,7 +10,6 @@ Dysarthria is a motor speech disorder that affects the muscles used for speaking
 - 20 voice commands (10 digits + 10 directional/action commands)
 - HuBERT-large based architecture with learned attention pooling
 - Curriculum learning: pre-train on control speakers, fine-tune on dysarthric speakers
-- Gradio web interface for real-time inference (record or upload audio)
 - Comprehensive audio augmentation pipeline
 
 ## Architecture
@@ -65,8 +64,6 @@ This project evolved through iterative improvements:
 
 ```
 dysarthric-voice-cmds/
-├── app/
-│   └── gradio_app.py          # Web interface for inference
 ├── src/
 │   ├── config.py              # Centralized configuration
 │   ├── data/
@@ -76,10 +73,8 @@ dysarthric-voice-cmds/
 │   ├── model/
 │   │   ├── architecture.py    # HuBERT + classifier model
 │   │   └── utils.py           # Model utilities
-│   ├── training/
-│   │   └── trainer.py         # Training and validation loops
-│   └── inference/
-│       └── predictor.py       # Inference wrapper class
+│   └── training/
+│       └── trainer.py         # Training and validation loops
 ├── scripts/
 │   └── train.py               # 3-phase curriculum learning training script
 ├── outputs/                   # Trained models and results
@@ -111,7 +106,6 @@ pip install -r requirements.txt
 - scikit-learn
 - pandas, matplotlib, seaborn
 - audiomentations
-- gradio>=4.0.0
 
 ### 3. Download the TORGO dataset
 
@@ -162,42 +156,6 @@ python scripts/train.py \
 - `outputs/curriculum_cv_results.csv` - Cross-validation results
 - `outputs/curriculum_cv_results.json` - JSON format results
 - `outputs/label_mapping.json` - Label encoding
-
-### Running the Web Interface
-
-```bash
-python app/gradio_app.py
-```
-
-**Command-line options:**
-```bash
-python app/gradio_app.py \
-    --checkpoint outputs/phase_b_curriculum_trained.pt \
-    --labels outputs/label_mapping.json \
-    --model-cache model_cache/facebook/hubert-large-ls960-ft \
-    --port 7860 \
-    --share  # Creates a public URL
-```
-
-### Inference in Python
-
-```python
-from src.inference.predictor import VoiceCommandPredictor
-
-predictor = VoiceCommandPredictor(
-    checkpoint_path="outputs/phase_b_curriculum_trained.pt",
-    label_mapping_path="outputs/label_mapping.json",
-    model_cache_dir="model_cache/facebook/hubert-large-ls960-ft"
-)
-
-# From file
-result = predictor.predict_file("path/to/audio.wav")
-
-# From numpy array
-result = predictor.predict(audio_array, sample_rate=16000)
-
-print(f"Predicted: {result['label']} ({result['confidence']*100:.1f}%)")
-```
 
 ## Supported Commands
 
@@ -350,27 +308,6 @@ Output artifacts in `outputs/`:
 - `curriculum_cv_results.json` - Detailed cross-validation results
 
 ## API Reference
-
-### VoiceCommandPredictor
-
-```python
-from src.inference.predictor import VoiceCommandPredictor
-
-predictor = VoiceCommandPredictor(
-    checkpoint_path: str,      # Path to .pt checkpoint
-    label_mapping_path: str,   # Path to label_mapping.json
-    model_cache_dir: str,      # Path to cached HuBERT model
-    device: str = None         # 'cuda', 'cpu', or auto-detect
-)
-
-# Predict from numpy array
-result = predictor.predict(audio: np.ndarray, sample_rate: int) -> dict
-
-# Predict from file
-result = predictor.predict_file(audio_path: str) -> dict
-
-# Returns: {'label': str, 'confidence': float, 'probabilities': dict}
-```
 
 ### HuBERTForCommandClassification
 
