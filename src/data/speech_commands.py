@@ -12,6 +12,9 @@ Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 
 import dataclasses
 import json
+import shutil
+import tempfile
+import uuid
 from pathlib import Path
 from typing import List, Tuple
 
@@ -32,6 +35,7 @@ CACHE_VERSION = 1
 DOWNLOAD_HINT = "run scripts/download_speech_commands.sh"
 _INT16_SCALE = 32767
 _META = "meta.json"  # written last: its presence marks a complete cache
+_INSTALL_ATTEMPTS = 5  # renames retried when concurrent runs race to install
 
 
 def read_wav(path: Path, sr: int) -> np.ndarray:
@@ -73,30 +77,72 @@ def _to_int16(audio: np.ndarray) -> np.ndarray:
 
 
 def _cache_matches(directory: Path, clips: pd.DataFrame, root: Path, sr: int) -> bool:
-    meta_path = directory / _META
-    if not meta_path.exists():
+    """True if `directory` holds a complete cache of exactly these clips and settings."""
+    try:
+        meta = json.loads((directory / _META).read_text())
+        if (not isinstance(meta, dict) or meta.get("version") != CACHE_VERSION
+                or meta.get("sample_rate") != sr
+                or meta.get("vad") != dataclasses.asdict(DEFAULT_VAD)):
+            return False
+        return np.load(directory / "files.npy").tolist() == _relative_files(clips, root)
+    except (OSError, ValueError):  # missing, or torn by an interrupted write
         return False
-    meta = json.loads(meta_path.read_text())
-    if (meta.get("version") != CACHE_VERSION or meta.get("sample_rate") != sr
-            or meta.get("vad") != dataclasses.asdict(DEFAULT_VAD)):
-        return False
-    return np.load(directory / "files.npy").tolist() == _relative_files(clips, root)
+
+
+def _write_word_cache(clips: pd.DataFrame, root: Path, target: Path, sr: int,
+                      split: str) -> None:
+    """Every cache file, written into the empty `target`; meta.json last."""
+    words = [_to_int16(extract_word(read_wav(p, sr), sr))
+             for p in tqdm(clips["file_path"], desc=f"Caching {split} words")]
+    offsets = np.concatenate([[0], np.cumsum([len(w) for w in words])]).astype(np.int64)
+    audio = np.concatenate(words) if words else np.zeros(0, np.int16)
+    np.save(target / "audio.npy", audio)
+    np.save(target / "offsets.npy", offsets)
+    np.save(target / "labels.npy", clips["label_id"].to_numpy(np.int64))
+    np.save(target / "files.npy", np.array(_relative_files(clips, root)))
+    (target / _META).write_text(json.dumps(
+        {"version": CACHE_VERSION, "sample_rate": sr, "vad": dataclasses.asdict(DEFAULT_VAD),
+         "count": len(clips)}))
+
+
+def _install(built: Path, directory: Path, clips: pd.DataFrame, root: Path, sr: int) -> None:
+    """
+    Put the finished `built` directory at `directory` by renames only. An old
+    cache is moved aside and deleted rather than overwritten, so a run that has
+    it memory-mapped keeps reading its files (they live on until unmapped).
+    If another run installed a matching cache meanwhile, that one is kept.
+    """
+    for _ in range(_INSTALL_ATTEMPTS):
+        if _cache_matches(directory, clips, root, sr):
+            return
+        stale = directory.with_name(f".{directory.name}.stale-{uuid.uuid4().hex}")
+        try:
+            directory.replace(stale)
+        except FileNotFoundError:
+            pass
+        try:
+            built.replace(directory)
+            return
+        except OSError:  # another run installed its cache between the two renames
+            continue
+        finally:
+            shutil.rmtree(stale, ignore_errors=True)
+    raise RuntimeError(f"could not install the word cache at {directory}: "
+                       "other runs kept replacing it")
 
 
 def _build_word_cache(clips: pd.DataFrame, root: Path, directory: Path, sr: int) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / _META).unlink(missing_ok=True)  # incomplete until rewritten below
-    words = [_to_int16(extract_word(read_wav(p, sr), sr))
-             for p in tqdm(clips["file_path"], desc=f"Caching words in {directory.name}")]
-    offsets = np.concatenate([[0], np.cumsum([len(w) for w in words])]).astype(np.int64)
-    audio = np.concatenate(words) if words else np.zeros(0, np.int16)
-    np.save(directory / "audio.npy", audio)
-    np.save(directory / "offsets.npy", offsets)
-    np.save(directory / "labels.npy", clips["label_id"].to_numpy(np.int64))
-    np.save(directory / "files.npy", np.array(_relative_files(clips, root)))
-    (directory / _META).write_text(json.dumps(
-        {"version": CACHE_VERSION, "sample_rate": sr, "vad": dataclasses.asdict(DEFAULT_VAD),
-         "count": len(clips)}))
+    """
+    Build in a private sibling directory, then swap it in, so runs sharing the
+    cache never see a half-written one. The partial build is removed on failure.
+    """
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    partial = Path(tempfile.mkdtemp(prefix=f".{directory.name}.partial-", dir=directory.parent))
+    try:
+        _write_word_cache(clips, root, partial, sr, directory.name)
+        _install(partial, directory, clips, root, sr)
+    finally:
+        shutil.rmtree(partial, ignore_errors=True)  # gone already once installed
 
 
 def ensure_word_cache(root: Path, split: str, cache_dir: Path, sr: int) -> Path:

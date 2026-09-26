@@ -93,6 +93,47 @@ def test_cache_rebuilds_when_the_vad_settings_change(fake_speech_commands, tmp_p
     assert json.loads(meta_path.read_text())["vad"] == dataclasses.asdict(DEFAULT_VAD)
 
 
+def test_unreadable_marker_or_file_list_means_rebuild(fake_speech_commands, tmp_path):
+    directory = ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    (directory / "meta.json").write_text("{")  # a torn write
+    ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    assert json.loads((directory / "meta.json").read_text())["count"] == 70
+    (directory / "files.npy").unlink()
+    ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    assert len(np.load(directory / "files.npy")) == 70
+
+
+def _leftovers(directory):
+    return sorted(p.name for p in directory.parent.iterdir() if p.name != directory.name)
+
+
+def test_rebuild_leaves_a_mapped_cache_untouched(fake_speech_commands, tmp_path):
+    directory = ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    old = WordCache(directory)
+    first = old.word(0).copy()  # maps the audio
+    next((fake_speech_commands / "train" / "backward").glob("*.wav")).unlink()
+    ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    assert not np.array_equal(WordCache(directory).word(0), first)  # the new cache differs
+    np.testing.assert_array_equal(old.word(0), first)               # the old map does not
+    assert _leftovers(directory) == []
+
+
+def test_failed_build_keeps_the_old_cache_and_no_partial(fake_speech_commands, tmp_path,
+                                                         monkeypatch):
+    directory = ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    next((fake_speech_commands / "train" / "yes").glob("*.wav")).unlink()
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("extraction failed")
+
+    monkeypatch.setattr("src.data.speech_commands.extract_word", broken)
+    with pytest.raises(RuntimeError, match="extraction failed"):
+        ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR)
+    assert (directory / "meta.json").exists()  # the old cache is still complete
+    assert len(WordCache(directory)) == 70
+    assert _leftovers(directory) == []
+
+
 def test_pickled_cache_carries_no_audio(fake_speech_commands, tmp_path):
     cache = WordCache(ensure_word_cache(fake_speech_commands, "train", tmp_path / "cache", SR))
     cache.word(0)  # maps the audio
