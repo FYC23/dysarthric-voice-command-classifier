@@ -3,7 +3,7 @@ PyTorch Dataset for TORGO dysarthric voice commands.
 """
 
 import random
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 import librosa
 from transformers import Wav2Vec2FeatureExtractor
 
+from ..audio import fit_to_length, prepare_waveform
 from .augmentation import create_augmentation_pipeline, apply_spec_augment
 
 
@@ -25,7 +26,7 @@ class TORGOCommandDataset(Dataset):
         df: pd.DataFrame,
         feature_extractor: Wav2Vec2FeatureExtractor,
         config,
-        max_length: int = 48000,
+        max_length: int = 24000,
         target_sr: int = 16000,
         augment: bool = False
     ):
@@ -53,15 +54,17 @@ class TORGOCommandDataset(Dataset):
             print(f"Error loading {file_path}: {e}")
             return np.zeros(self.max_length, dtype=np.float32)
     
+    @staticmethod
+    def segment_of(row: pd.Series) -> Optional[Tuple[float, float]]:
+        """Hand-labelled word location (see src/data/segments.py), if the row has one."""
+        start, end = row.get('seg_start'), row.get('seg_end')
+        if start is None or end is None or pd.isna(start) or pd.isna(end):
+            return None
+        return float(start), float(end)
+
     def pad_or_truncate(self, audio: np.ndarray) -> np.ndarray:
-        """Ensure audio is exactly max_length samples."""
-        if len(audio) > self.max_length:
-            start = (len(audio) - self.max_length) // 2
-            audio = audio[start:start + self.max_length]
-        elif len(audio) < self.max_length:
-            padding = self.max_length - len(audio)
-            audio = np.pad(audio, (0, padding), mode='constant')
-        return audio
+        """Ensure audio is exactly max_length samples (centre-pad or loudest window)."""
+        return fit_to_length(audio, self.max_length)
     
     def apply_augmentation(self, audio: np.ndarray) -> np.ndarray:
         """Apply comprehensive data augmentation pipeline."""
@@ -80,9 +83,9 @@ class TORGOCommandDataset(Dataset):
         row = self.df.iloc[idx]
         
         audio = self.load_audio(row['file_path'])
-        audio = self.pad_or_truncate(audio)
+        audio = prepare_waveform(audio, self.target_sr, self.max_length, segment=self.segment_of(row))
         audio = self.apply_augmentation(audio)
-        audio = self.pad_or_truncate(audio)
+        audio = self.pad_or_truncate(audio)  # time stretch changes the length
         
         inputs = self.feature_extractor(
             audio,

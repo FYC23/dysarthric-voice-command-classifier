@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.config import config
 from src.data.preprocessing import scan_torgo_dataset, create_label_mapping
 from src.data.dataset import TORGOCommandDataset, collate_fn
+from src.data.segments import apply_segment_labels, load_segment_labels, measure_kept_lengths
 from src.model.architecture import HuBERTForCommandClassification
 from src.training.trainer import train_epoch, validate, save_checkpoint
 
@@ -580,12 +581,30 @@ def main():
     print("=" * 60)
     
     print("\nScanning TORGO dataset...")
-    df = scan_torgo_dataset(config.TORGO_ROOT, config.TARGET_COMMANDS, config.MIC_TYPE)
+    df = scan_torgo_dataset(config.TORGO_ROOT, config.TARGET_COMMANDS,
+                            config.MIC_TYPES, config.MIN_AUDIO_DURATION,
+                            config.MAX_AUDIO_DURATION)
 
     print(f"\nFound {len(df)} samples matching target commands")
+    print(f"Per mic: {df['mic'].value_counts().to_dict()}")
     print(f"Unique speakers: {df['speaker_id'].nunique()}")
     print(f"Unique labels: {df['label'].nunique()}")
 
+    # Clips still longer than the window after trimming are cropped to
+    # hand-labelled word segments; unlabelled ones are dropped (src/data/segments.py)
+    labels = load_segment_labels(config.TORGO_SEGMENT_LABELS)
+    result = apply_segment_labels(measure_kept_lengths(df), labels,
+                                  config.TORGO_ROOT, config.MAX_AUDIO_LENGTH)
+    df = result.samples
+    print(f"\nSegment labels: {len(labels)} clips labelled, "
+          f"{df['seg_start'].notna().sum()} samples cropped to a labelled word")
+    if len(result.dropped):
+        print(f"Dropped {len(result.dropped)} clips: {result.dropped['reason'].value_counts().to_dict()}")
+        for _, r in result.dropped[result.dropped['reason'] == 'unlabeled_over_window'].iterrows():
+            print(f"  needs a label: {Path(r['file_path']).relative_to(config.TORGO_ROOT)} "
+                  f"({r['kept_s']:.2f} s after trimming)")
+    config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    result.non_speech.to_csv(config.CACHE_DIR / 'torgo_non_speech_segments.csv', index=False)
 
     # Create label encoding
     label2id, id2label = create_label_mapping(df)

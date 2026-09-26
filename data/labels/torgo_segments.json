@@ -1,0 +1,648 @@
+{
+  "format": "torgo-segment-labels",
+  "version": 1,
+  "exported": "2026-09-26T02:57:51.614Z",
+  "window_s": 2,
+  "paths_relative_to": "data/raw/TORGO",
+  "types": {
+    "word": "complete attempt at the prompted word",
+    "partial": "incomplete or abandoned attempt",
+    "non_speech": "struggle sounds, breaths, clicks and other non-word sounds"
+  },
+  "clips": {
+    "F/F04/Session2/wav_arrayMic/0067.wav": {
+      "label": "four",
+      "speaker": "F04",
+      "mic": "array mic",
+      "duration_s": 8.4,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.28,
+          "end": 1.595,
+          "type": "word"
+        },
+        {
+          "start": 6.67,
+          "end": 6.995,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session1/wav_arrayMic/0072.wav": {
+      "label": "left",
+      "speaker": "M02",
+      "mic": "array mic",
+      "duration_s": 4.65,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0,
+          "end": 0.615,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.63,
+          "end": 1.225,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.31,
+          "end": 1.805,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.85,
+          "end": 2.145,
+          "type": "non_speech"
+        },
+        {
+          "start": 2.896,
+          "end": 4.076,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_headMic/0032.wav": {
+      "label": "left",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 4.03,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0,
+          "end": 0.165,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.22,
+          "end": 0.335,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.38,
+          "end": 0.475,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.48,
+          "end": 0.585,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.39,
+          "end": 1.945,
+          "type": "non_speech"
+        },
+        {
+          "start": 2.242,
+          "end": 3.496,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_headMic/0156.wav": {
+      "label": "yes",
+      "speaker": "M02",
+      "mic": "head mic",
+      "duration_s": 3.935,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.16,
+          "end": 0.465,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.8,
+          "end": 1.135,
+          "type": "non_speech"
+        },
+        {
+          "start": 2.24,
+          "end": 3.414,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_arrayMic/0156.wav": {
+      "label": "yes",
+      "speaker": "M02",
+      "mic": "array mic",
+      "duration_s": 4.5,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0,
+          "end": 0.075,
+          "type": "non_speech"
+        },
+        {
+          "start": 0.43,
+          "end": 0.695,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.863,
+          "end": 3.023,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_headMic/0081.wav": {
+      "label": "select",
+      "speaker": "M02",
+      "mic": "head mic",
+      "duration_s": 3.525,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0,
+          "end": 0.655,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.15,
+          "end": 1.445,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.852,
+          "end": 2.927,
+          "type": "word"
+        }
+      ]
+    },
+    "FC/FC03/Session1/wav_headMic/0043.wav": {
+      "label": "two",
+      "speaker": "FC03",
+      "mic": "head mic",
+      "duration_s": 3.52,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.29,
+          "end": 0.715,
+          "type": "word"
+        },
+        {
+          "start": 2.54,
+          "end": 2.995,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0177.wav": {
+      "label": "no",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.33,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.61,
+          "end": 2.655,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_headMic/0035.wav": {
+      "label": "down",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.01,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.461,
+          "end": 2.59,
+          "type": "word"
+        }
+      ]
+    },
+    "F/F03/Session2/wav_headMic/0052.wav": {
+      "label": "forward",
+      "speaker": "F03",
+      "mic": "head mic",
+      "duration_s": 3.135,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0,
+          "end": 0.275,
+          "type": "partial"
+        },
+        {
+          "start": 1.925,
+          "end": 2.524,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M03/Session2/wav_headMic/0348.wav": {
+      "label": "six",
+      "speaker": "M03",
+      "mic": "head mic",
+      "duration_s": 2.94,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.036,
+          "end": 0.696,
+          "type": "word"
+        },
+        {
+          "start": 1.842,
+          "end": 2.501,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0108.wav": {
+      "label": "yes",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 2.715,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.08,
+          "end": 0.345,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.22,
+          "end": 2.205,
+          "type": "word"
+        }
+      ]
+    },
+    "F/F03/Session2/wav_arrayMic/0052.wav": {
+      "label": "forward",
+      "speaker": "F03",
+      "mic": "array mic",
+      "duration_s": 2.55,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.2,
+          "end": 0.325,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.559,
+          "end": 2.28,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0203.wav": {
+      "label": "five",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 2.51,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.075,
+          "end": 1.938,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0115.wav": {
+      "label": "three",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 4.2,
+      "status": "done",
+      "segments": [
+        {
+          "start": 2.5,
+          "end": 3.495,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_headMic/0041.wav": {
+      "label": "one",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.265,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.8,
+          "end": 2.705,
+          "type": "word"
+        }
+      ]
+    },
+    "F/F03/Session2/wav_headMic/0113.wav": {
+      "label": "five",
+      "speaker": "F03",
+      "mic": "head mic",
+      "duration_s": 1.865,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.972,
+          "end": 1.324,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_headMic/0093.wav": {
+      "label": "no",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 2.435,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.33,
+          "end": 0.885,
+          "type": "word"
+        },
+        {
+          "start": 1.24,
+          "end": 1.885,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0193.wav": {
+      "label": "nine",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.735,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.57,
+          "end": 3.105,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0245.wav": {
+      "label": "zero",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.24,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.34,
+          "end": 2.835,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_headMic/0082.wav": {
+      "label": "yes",
+      "speaker": "M02",
+      "mic": "head mic",
+      "duration_s": 2.76,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.9,
+          "end": 1.005,
+          "type": "partial"
+        },
+        {
+          "start": 1.272,
+          "end": 2.125,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0391.wav": {
+      "label": "one",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 2.925,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.62,
+          "end": 2.635,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session1/wav_headMic/0158.wav": {
+      "label": "three",
+      "speaker": "M02",
+      "mic": "head mic",
+      "duration_s": 2.543,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.43,
+          "end": 1.145,
+          "type": "word"
+        }
+      ]
+    },
+    "MC/MC03/Session1/wav_headMic/0448.wav": {
+      "label": "left",
+      "speaker": "MC03",
+      "mic": "head mic",
+      "duration_s": 1.705,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.913,
+          "end": 1.382,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_arrayMic/0081.wav": {
+      "label": "select",
+      "speaker": "M02",
+      "mic": "array mic",
+      "duration_s": 3.45,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.941,
+          "end": 2.286,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0092.wav": {
+      "label": "menu",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.245,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.37,
+          "end": 2.755,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_headMic/0040.wav": {
+      "label": "yes",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 2.635,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.649,
+          "end": 1.019,
+          "type": "non_speech"
+        },
+        {
+          "start": 1.419,
+          "end": 2.315,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session1/wav_arrayMic/0093.wav": {
+      "label": "no",
+      "speaker": "M05",
+      "mic": "array mic",
+      "duration_s": 2.554,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.22,
+          "end": 0.545,
+          "type": "word"
+        },
+        {
+          "start": 0.95,
+          "end": 1.545,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0071.wav": {
+      "label": "forward",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.13,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.695,
+          "end": 2.736,
+          "type": "word"
+        }
+      ]
+    },
+    "MC/MC03/Session1/wav_headMic/0447.wav": {
+      "label": "four",
+      "speaker": "MC03",
+      "mic": "head mic",
+      "duration_s": 1.62,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.021,
+          "end": 1.265,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M05/Session2/wav_headMic/0099.wav": {
+      "label": "select",
+      "speaker": "M05",
+      "mic": "head mic",
+      "duration_s": 3.54,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.9,
+          "end": 3.072,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session1/wav_headMic/0065.wav": {
+      "label": "no",
+      "speaker": "M02",
+      "mic": "head mic",
+      "duration_s": 2.239,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.83,
+          "end": 1.435,
+          "type": "word"
+        }
+      ]
+    },
+    "MC/MC03/Session1/wav_headMic/0315.wav": {
+      "label": "five",
+      "speaker": "MC03",
+      "mic": "head mic",
+      "duration_s": 1.545,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.02,
+          "end": 1.393,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M02/Session2/wav_arrayMic/0184.wav": {
+      "label": "zero",
+      "speaker": "M02",
+      "mic": "array mic",
+      "duration_s": 3,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.69,
+          "end": 1.545,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M01/Session2_3/wav_arrayMic/0059.wav": {
+      "label": "three",
+      "speaker": "M01",
+      "mic": "array mic",
+      "duration_s": 3.6,
+      "status": "done",
+      "segments": [
+        {
+          "start": 1.1,
+          "end": 1.205,
+          "type": "partial"
+        },
+        {
+          "start": 1.719,
+          "end": 2.497,
+          "type": "word"
+        }
+      ]
+    },
+    "M/M01/Session2_3/wav_headMic/0059.wav": {
+      "label": "three",
+      "speaker": "M01",
+      "mic": "head mic",
+      "duration_s": 1.808,
+      "status": "done",
+      "segments": [
+        {
+          "start": 0.77,
+          "end": 1.365,
+          "type": "word"
+        }
+      ]
+    }
+  }
+}

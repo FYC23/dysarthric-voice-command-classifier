@@ -28,6 +28,8 @@ class Config:
     MODEL_CACHE_DIR = CACHE_DIR / "pretrained"  # Downloaded pretrained weights (HuBERT)
     RUNS_DIR = REPO_ROOT / "runs"        # Training checkpoints (large, not committed)
     OUTPUT_DIR = REPO_ROOT / "outputs"   # Results tables and plots (committed)
+    LABELS_DIR = DATA_DIR / "labels"     # Hand labels (committed: can't be regenerated)
+    TORGO_SEGMENT_LABELS = LABELS_DIR / "torgo_segments.json"  # word locations in long clips
     
     # -------------------------------------------------------------------------
     # TARGET COMMANDS
@@ -52,11 +54,15 @@ class Config:
     # HuBERT was trained on 16kHz audio - must match for optimal performance
     SAMPLE_RATE = 16000
     
-    # Max audio length: Single-word commands are typically <2 seconds.
-    # 3 seconds provides buffer for slower dysarthric speech.
-    # Trade-off: Longer = more memory, shorter = potential truncation
-    MAX_AUDIO_LENGTH = 3.0  # seconds
-    MAX_AUDIO_SAMPLES = int(SAMPLE_RATE * MAX_AUDIO_LENGTH)  # 48000 samples
+    # Fixed model window, applied AFTER silence trimming (VAD in src/audio.py).
+    # Fixed (not variable) because the target is an on-device streaming model.
+    # After trimming, 98.7% of TORGO clips fit in 2 s, and every clip that
+    # contains a single sound does (max 1.83 s). The 13 clips that don't are
+    # dysarthric struggle + word; they are cropped to hand-labelled word
+    # segments (src/data/segments.py), never blindly (the loudest part is often
+    # the struggle, not the word).
+    MAX_AUDIO_LENGTH = 2.0  # seconds
+    MAX_AUDIO_SAMPLES = int(SAMPLE_RATE * MAX_AUDIO_LENGTH)  # 32000 samples
     
     # -------------------------------------------------------------------------
     # MODEL SETTINGS
@@ -103,10 +109,19 @@ class Config:
     # -------------------------------------------------------------------------
     # DATA SETTINGS
     # -------------------------------------------------------------------------
-    # TORGO has two microphone types:
-    # - wav_arrayMic: Acoustic Magic array microphone (better quality, recommended)
-    # - wav_headMic: Head-mounted microphone (more noise from EMA interference)
-    MIC_TYPE = "wav_arrayMic"
+    # TORGO records every take on two microphones:
+    # - wav_arrayMic: Acoustic Magic array mic at 61 cm (cleaner)
+    # - wav_headMic: head-mounted mic (more noise from EMA interference, more low end)
+    # Both are used: this roughly doubles the data, recovers speakers with
+    # sessions on only one mic (M05 Session2 has no array mic), and stops mic
+    # type from being specific to a few speakers. Splits are by speaker, so the
+    # two recordings of one take never land on different sides of a split.
+    MIC_TYPES = ("wav_arrayMic", "wav_headMic")
+
+    # Raw WAVs outside this range are skipped: M05 Session2 has ~10 ms head-mic
+    # stubs, and one F03 head-mic "no" is a 194 s recording (single words are <= 8.4 s)
+    MIN_AUDIO_DURATION = 0.1   # seconds
+    MAX_AUDIO_DURATION = 10.0  # seconds
     
     # Whether to use class-weighted loss for imbalanced classes
     # IMPORTANT: Set to True when classes have very different sample counts

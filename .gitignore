@@ -4,9 +4,10 @@ __pycache__/
 *.egg-info/
 .eggs/
 
-# Data: track only the README (datasets and caches live in data/raw, data/cache)
+# Data: track only the README and hand labels (datasets and caches live in data/raw, data/cache)
 data/*
 !data/README.md
+!data/labels/
 
 # Training checkpoints (no trailing slash: runs may be a symlink)
 /runs

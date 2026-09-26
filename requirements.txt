@@ -3,6 +3,8 @@ torchaudio
 transformers
 modelscope
 librosa
+scipy
+soundfile
 scikit-learn
 pandas
 matplotlib

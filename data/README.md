@@ -1,6 +1,6 @@
 # Data
 
-Everything in this folder except this README is gitignored. Code finds it
+Everything in this folder except this README and `labels/` is gitignored. Code finds it
 through the paths in `src/config.py`, all relative to the repo root.
 
 ```
@@ -8,8 +8,10 @@ data/
 ├── raw/                      # Datasets exactly as downloaded. Never modified.
 │   ├── TORGO/
 │   └── speech_commands_v2/
-└── cache/                    # Derived files. Safe to delete; scripts rebuild them.
-    └── pretrained/           # Downloaded pretrained weights (HuBERT)
+├── cache/                    # Derived files. Safe to delete; scripts rebuild them.
+│   └── pretrained/           # Downloaded pretrained weights (HuBERT)
+└── labels/                   # Hand labels. Committed: they can't be regenerated.
+    └── torgo_segments.json   # Word / partial / non-speech segments in long TORGO clips
 
 runs/                         # (repo root) training checkpoints, also gitignored
 ```
