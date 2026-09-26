@@ -3,9 +3,12 @@ BC-ResNet input features and SpecAugment (Kim et al. 2021 section 4.1; the
 reference code's LogMel and spec_augment in utils.py).
 
 LogMel: 40 mel bins, 30 ms window, 10 ms hop, n_fft 512, log(mel + 1e-6).
-SpecAugment: 2 frequency + 2 time masks, no time warping, masks set to 0 as
-in the reference (0 is log(1), not silence). The time parameter is 20 frames;
-the frequency parameter grows with width tau, and BC-ResNet-1 uses none.
+SpecAugment: 2 frequency masks and 2 time masks per second of audio (the
+paper's 2 on 1 s clips, 4 on our 2 s window:
+docs/superpowers/specs/2026-09-26-bcresnet-training-design.md), no time
+warping, masks set to 0 as in the reference (0 is log(1), not silence). The
+time parameter is 20 frames; the frequency parameter grows with width tau,
+and BC-ResNet-1 uses none.
 Training batches only: never applied to validation or test features.
 """
 
@@ -24,7 +27,8 @@ WIN_LENGTH = 480  # 30 ms
 HOP_LENGTH = 160  # 10 ms
 LOG_OFFSET = 1e-6
 TIME_MASK_PARAM = 20
-NUM_MASKS = 2
+NUM_FREQ_MASKS = 2
+TIME_MASKS_PER_SECOND = 2  # the paper's 2 on its 1 s clips; 4 on our 2 s window
 FREQ_MASK_PARAM_BY_TAU = {1: 0, 1.5: 1, 2: 3, 3: 5, 6: 7, 8: 7}
 SPEC_AUGMENT_MIN_TAU = 1.5
 
@@ -49,18 +53,24 @@ class LogMel(nn.Module):
 class SpecAugParams:
     freq_mask_param: int
     time_mask_param: int = TIME_MASK_PARAM
-    num_freq_masks: int = NUM_MASKS
-    num_time_masks: int = NUM_MASKS
+    num_freq_masks: int = NUM_FREQ_MASKS
+    num_time_masks: int = TIME_MASKS_PER_SECOND  # for a 1 s input
 
 
-def spec_augment_params(tau: float) -> Optional[SpecAugParams]:
-    """The paper's SpecAugment for BC-ResNet-tau, or None (BC-ResNet-1 uses none)."""
+def spec_augment_params(tau: float, window_s: float = 1.0) -> Optional[SpecAugParams]:
+    """
+    The paper's SpecAugment for BC-ResNet-tau on a `window_s` input, or None
+    (BC-ResNet-1 uses none). Time masks keep the paper's density per second.
+    """
     if tau not in FREQ_MASK_PARAM_BY_TAU:
         raise ValueError(f"no SpecAugment setting for tau={tau}; "
                          f"known: {sorted(FREQ_MASK_PARAM_BY_TAU)}")
+    if window_s <= 0:
+        raise ValueError(f"window must be positive, got {window_s} s")
     if tau < SPEC_AUGMENT_MIN_TAU:
         return None
-    return SpecAugParams(freq_mask_param=FREQ_MASK_PARAM_BY_TAU[tau])
+    return SpecAugParams(freq_mask_param=FREQ_MASK_PARAM_BY_TAU[tau],
+                         num_time_masks=max(1, round(TIME_MASKS_PER_SECOND * window_s)))
 
 
 def _mask_span(param: int, size: int, generator: torch.Generator) -> Tuple[int, int]:

@@ -36,6 +36,19 @@ class TestSpecAugmentParams:
         with pytest.raises(ValueError, match="tau"):
             spec_augment_params(4)
 
+    def test_time_masks_keep_the_papers_density_of_two_per_second(self):
+        assert spec_augment_params(8).num_time_masks == 2
+        assert spec_augment_params(8, window_s=2.0).num_time_masks == 4
+        assert spec_augment_params(2, window_s=2.0).num_freq_masks == 2
+
+    def test_width_one_still_has_no_specaugment_at_2s(self):
+        assert spec_augment_params(1, window_s=2.0) is None
+
+    @pytest.mark.parametrize("window_s", [0, -1.0])
+    def test_rejects_non_positive_window(self, window_s):
+        with pytest.raises(ValueError, match="window"):
+            spec_augment_params(8, window_s=window_s)
+
 
 class TestSpecAugment:
     PARAMS = SpecAugParams(freq_mask_param=7)
@@ -67,3 +80,9 @@ class TestSpecAugment:
         params = SpecAugParams(freq_mask_param=0)
         out = spec_augment(torch.ones(4, 1, 40, 201), params, torch.Generator().manual_seed(0))
         assert (out[:, 0] == 0).all(dim=2).sum() == 0
+
+    def test_four_time_masks_stay_bounded(self):
+        params = SpecAugParams(freq_mask_param=7, num_time_masks=4)
+        out = spec_augment(torch.ones(8, 1, 40, 201), params, torch.Generator().manual_seed(0))
+        for example in out[:, 0]:
+            assert (example == 0).all(dim=0).sum().item() <= 4 * 19
