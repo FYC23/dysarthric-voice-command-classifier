@@ -310,11 +310,26 @@ self.classifier = nn.Sequential(
 - **Evaluation method**: Leave-one-speaker-out (LOSO) cross-validation over the 8 dysarthric speakers
 - **Note**: The previously reported ~87% came from an evaluation where each fold started from a model already trained on the held-out speaker and selected its best epoch on that speaker's test data, so it overstated generalization to unseen speakers. Re-run `python scripts/train.py` to regenerate `outputs/curriculum_cv_results.*` with the corrected protocol.
 
-Output artifacts in `outputs/`:
-- `confusion_matrix.png` - Confusion matrix visualization
-- `per_class_accuracy.png` - Per-class accuracy breakdown
-- `curriculum_per_speaker_accuracy.png` - Accuracy by speaker
-- `curriculum_cv_results.json` - Detailed cross-validation results
+The outputs of that old evaluation have been removed from `outputs/`; its numbers should not be quoted.
+
+### Step 1: off-the-shelf ASR (zero-shot)
+
+Whisper large-v3 and Parakeet-TDT-0.6B-v3 transcribe each clip (the same 2 s window the classifiers see); transcripts are scored **strict** (the transcript is exactly the word) and **lenient** (mapped to the nearest of the 20 commands). Speaker-averaged accuracy over the 8 dysarthric speakers, array mic, 95% bootstrap CI over speakers:
+
+| Model | Strict | Lenient | Control (lenient) |
+|---|---|---|---|
+| Whisper large-v3 | 50.3% [33.4, 69.2] | 66.3% [53.6, 80.2] | 95.7% |
+| Parakeet-TDT-0.6B-v3 | 53.9% [38.8, 70.6] | 70.6% [59.0, 83.8] | 92.0% |
+
+Mild dysarthria is handled well (80–91%); severe speakers fall to 34–56%. Parakeet v3 is multilingual and answered in another language on 17% of dysarthric clips.
+
+```bash
+python scripts/run_asr_baseline.py --model whisper-large-v3      # transcribe + score (resumable)
+python scripts/run_asr_baseline.py --model parakeet-tdt-0.6b-v3
+python scripts/report_asr_baselines.py                           # tables and figures
+```
+
+Report in `outputs/step1-asr/` (head mic in `outputs/step1-asr/head-mic/`): `results.md`/`.csv`, `per_speaker.csv`, `accuracy_vs_macs.png` and one `confusion_<run>.png` per run.
 
 ## API Reference
 
