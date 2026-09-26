@@ -3,7 +3,7 @@ Waveform preparation for model input. Any inference path must call
 prepare_waveform too, so the model sees audio prepared the same way as in training.
 
 Pipeline: remove DC offset -> trim leading/trailing silence with an energy VAD
--> fit to a fixed window (centre-pad, or keep the loudest window).
+(extract_word) -> fit to a fixed window (centre-pad, or keep the loudest window).
 
 Depends only on numpy/scipy (no torch/librosa), so it can be reused anywhere.
 
@@ -119,11 +119,12 @@ def kept_length_s(audio: np.ndarray, sr: int, params: VadParams = DEFAULT_VAD) -
     return len(trim_silence(audio, sr, params)) / sr
 
 
-def prepare_waveform(audio: np.ndarray, sr: int, length: int,
-                     params: VadParams = DEFAULT_VAD,
-                     segment: Optional[Tuple[float, float]] = None) -> np.ndarray:
+def extract_word(audio: np.ndarray, sr: int,
+                 params: VadParams = DEFAULT_VAD,
+                 segment: Optional[Tuple[float, float]] = None) -> np.ndarray:
     """
-    DC removal -> silence trim -> fixed window. Returns a new float32 array.
+    DC removal -> silence trim. Returns a new float32 array of variable length:
+    the word plus params.pad_s of context either side.
 
     `segment` = (start_s, end_s) is a hand-labelled word location. It replaces
     the VAD: dysarthric clips often start with struggle sounds that the VAD
@@ -138,4 +139,16 @@ def prepare_waveform(audio: np.ndarray, sr: int, length: int,
             raise ValueError(f"invalid segment {segment}: need 0 <= start < end")
         pad = params.pad_s
         kept = audio[max(0, int((start_s - pad) * sr)):int((end_s + pad) * sr)]
-    return fit_to_length(kept, length).astype(np.float32)
+    return np.array(kept, dtype=np.float32)
+
+
+def prepare_waveform(audio: np.ndarray, sr: int, length: int,
+                     params: VadParams = DEFAULT_VAD,
+                     segment: Optional[Tuple[float, float]] = None) -> np.ndarray:
+    """
+    extract_word -> fixed window (word centred). Returns a new float32 array.
+
+    This is the evaluation path: every validation/test clip goes through it
+    unchanged. Training augmentation starts from extract_word instead.
+    """
+    return fit_to_length(extract_word(audio, sr, params, segment), length).astype(np.float32)

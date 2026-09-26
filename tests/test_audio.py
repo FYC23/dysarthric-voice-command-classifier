@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
-from src.audio import VadParams, detect_speech, fit_to_length, prepare_waveform, remove_dc, trim_silence
+from src.audio import (
+    VadParams, detect_speech, extract_word, fit_to_length, prepare_waveform, remove_dc, trim_silence,
+)
 
 SR = 16000
 
@@ -154,3 +156,37 @@ class TestPrepareWaveform:
         # 0.4 s word + 2 x 0.15 s padding, centred in the 2 s window: non-zero span ~0.7 s
         nonzero = np.flatnonzero(out)
         assert abs((nonzero[-1] - nonzero[0]) / SR - 0.7) < 0.02
+
+
+class TestExtractWord:
+    def test_trims_silence_and_keeps_the_word(self):
+        audio = with_burst(noise(2.0), 0.8, 0.4)
+        word = extract_word(audio, SR)
+        assert word.dtype == np.float32
+        # 0.4 s burst plus the VAD's 0.15 s context either side
+        assert abs(len(word) / SR - 0.7) < 0.06
+
+    def test_prepare_waveform_is_extract_word_then_fit(self):
+        audio = with_burst(noise(2.0), 0.3, 0.4)
+        expected = fit_to_length(extract_word(audio, SR), 2 * SR)
+        np.testing.assert_array_equal(prepare_waveform(audio, SR, 2 * SR), expected)
+
+    def test_segment_replaces_the_vad(self):
+        audio = with_burst(noise(2.0), 0.8, 0.4)
+        word = extract_word(audio, SR, segment=(1.0, 1.1))
+        pad = VadParams().pad_s
+        assert len(word) == int((1.1 + pad) * SR) - int((1.0 - pad) * SR)
+
+    def test_invalid_segment_raises(self):
+        with pytest.raises(ValueError, match="invalid segment"):
+            extract_word(noise(1.0), SR, segment=(0.5, 0.2))
+
+    def test_segment_past_the_end_gives_an_empty_word(self):
+        word = extract_word(noise(1.0), SR, segment=(3.0, 3.5))
+        assert len(word) == 0 and word.dtype == np.float32
+
+    def test_does_not_mutate_input(self):
+        audio = with_burst(noise(2.0), 0.8, 0.4) + 0.05
+        before = audio.copy()
+        extract_word(audio, SR)
+        np.testing.assert_array_equal(audio, before)
