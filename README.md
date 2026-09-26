@@ -82,7 +82,6 @@ dysarthric-voice-cmds/
 │   └── cache/pretrained/      # Cached HuBERT weights
 ├── runs/                      # Gitignored: training checkpoints
 ├── outputs/                   # Results tables and plots
-├── main.ipynb                 # Main training notebook
 └── requirements.txt           # Python dependencies
 ```
 
