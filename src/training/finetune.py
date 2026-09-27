@@ -4,7 +4,6 @@ with a fresh 20-class head (head warmup, then the whole network); it runs once
 and every fold starts from it. Stage 3: the dysarthric fine-tune once per LOSO
 fold (evaluated) and once on all 8 speakers (the deploy model, not evaluated).
 Hyperparameters are fixed (src/training/bcresnet_recipe.py); last epoch kept.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 from dataclasses import asdict, dataclass

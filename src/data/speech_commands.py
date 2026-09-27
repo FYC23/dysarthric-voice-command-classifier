@@ -7,7 +7,6 @@ extract_word (DC removal + VAD trim), then a random place in the 2 s window
 for training (speech_commands_augment.py) or the centre for evaluation.
 Extracted words are deterministic, so they are cached once as int16 .npy
 files; augmentation stays on the fly.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 import dataclasses

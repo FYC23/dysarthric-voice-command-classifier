@@ -2,7 +2,6 @@
 Stage 1 of BC-ResNet training: Speech Commands v0.02, 36 classes, the paper's
 recipe at the 2 s window. Keeps the best-validation epoch, scores the test
 split once, and resumes from the last completed epoch.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 import dataclasses

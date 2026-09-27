@@ -2,7 +2,6 @@
 The fixed BC-ResNet training settings of all three stages, and where runs go.
 Stage 1 is the paper's recipe (Kim et al. 2021, section 4.1). Stages 2-3 are
 fixed in advance and never tuned on LOSO results.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 from dataclasses import dataclass

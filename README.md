@@ -165,8 +165,7 @@ Run it once per seed (`--seed 0`, `--seed 1`, `--seed 2`); results are reported 
 
 ## BC-ResNet (step 3)
 
-Three stages per width τ ∈ {1, 2, 3, 8} and seed
-([design](docs/superpowers/specs/2026-09-26-bcresnet-training-design.md)):
+Three stages per width τ ∈ {1, 2, 3, 8} and seed:
 
 1. **Speech Commands pretraining**: 35 words + silence, 2 s window, the BC-ResNet
    paper's recipe (200 epochs). Needs `bash scripts/download_speech_commands.sh`.
@@ -269,7 +268,7 @@ The [TORGO database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.htm
 ## Data Augmentation
 
 Training only, generated on the fly; validation and test audio is never
-augmented. Rationale: `docs/superpowers/specs/2026-09-25-data-augmentation-design.md`.
+augmented.
 
 **TORGO (HuBERT and BC-ResNet)**, applied to the extracted word:
 - Speed perturbation, factor from {0.9, 0.95, 1.0, 1.05, 1.1}

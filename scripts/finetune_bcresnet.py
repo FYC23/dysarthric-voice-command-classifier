@@ -9,7 +9,6 @@ width and seed, after scripts/pretrain_bcresnet.py.
 
 Writes runs/bcresnet-<tau>/seed<k>/{controls.pt, fold<i>_<speaker>.pt,
 deploy.pt, eval/} and runs/bcresnet-<tau>/cost.json.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 import argparse

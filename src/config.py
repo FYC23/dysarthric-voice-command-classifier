@@ -140,7 +140,6 @@ class Config:
     # Training-only and on the fly. Settings live next to their code as frozen
     # dataclasses: TorgoAugParams (src/data/torgo_augment.py), BCResNetAugParams
     # (src/data/speech_commands_augment.py), SpecAugment (src/model/frontend.py).
-    # Rationale: docs/superpowers/specs/2026-09-25-data-augmentation-design.md
     
     # -------------------------------------------------------------------------
     # CURRICULUM LEARNING SETTINGS

@@ -11,7 +11,7 @@ Reference-code details kept on purpose:
 - the _silence_ class is noise at amplitude U(0, 1) on an empty clip;
 - the result is clamped to [-1, 1].
 `augment_command` is the reference 1 s view; `augment_word_in_window` is the
-2 s view our pretraining uses (docs/superpowers/specs/2026-09-26-bcresnet-training-design.md).
+2 s view our pretraining uses.
 SpecAugment on the log-Mel is in src/model/frontend.py.
 """
 

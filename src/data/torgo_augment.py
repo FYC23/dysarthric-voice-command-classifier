@@ -5,7 +5,6 @@ Never applied to validation or test audio.
 Per clip, starting from the extracted word (src/audio.py extract_word):
   speed perturbation -> random position in the window -> background noise at a
   random SNR -> random gain.
-Why each step and each setting: docs/superpowers/specs/2026-09-25-data-augmentation-design.md
 """
 
 from dataclasses import dataclass

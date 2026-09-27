@@ -4,8 +4,7 @@ reference code's LogMel and spec_augment in utils.py).
 
 LogMel: 40 mel bins, 30 ms window, 10 ms hop, n_fft 512, log(mel + 1e-6).
 SpecAugment: 2 frequency masks and 2 time masks per second of audio (the
-paper's 2 on 1 s clips, 4 on our 2 s window:
-docs/superpowers/specs/2026-09-26-bcresnet-training-design.md), no time
+paper's 2 on 1 s clips, 4 on our 2 s window), no time
 warping, masks set to 0 as in the reference (0 is log(1), not silence). The
 time parameter is 20 frames; the frequency parameter grows with width tau,
 and BC-ResNet-1 uses none.

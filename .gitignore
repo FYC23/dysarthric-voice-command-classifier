@@ -34,3 +34,7 @@ venv/
 # Hugging Face Spaces
 hf_spaces_package/
 dysarthric-voice-cmds/
+# Local agent/tooling state and AI planning docs
+.claude/
+.superpowers/
+docs/superpowers/

@@ -9,7 +9,6 @@ silence, 2 s window, the paper's recipe). One invocation per width and seed.
 
 Writes runs/bcresnet-<tau>/seed<k>/pretrain.pt (best validation epoch),
 pretrain_last.pt (resume point) and pretrain_metrics.json.
-Design: docs/superpowers/specs/2026-09-26-bcresnet-training-design.md
 """
 
 import argparse
