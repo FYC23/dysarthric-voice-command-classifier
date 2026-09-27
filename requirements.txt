@@ -1,7 +1,6 @@
 torch
 torchaudio
 transformers
-modelscope
 librosa
 scipy
 soundfile

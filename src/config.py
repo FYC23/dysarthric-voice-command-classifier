@@ -30,7 +30,7 @@ class Config:
     # recordings in Speech Commands' train split. The HF split put a 6th
     # (running_tap) in validation; it is left out so no held-out audio is trained on.
     NOISE_DIR = SPEECH_COMMANDS_ROOT / "train" / "_silence_"
-    MODEL_CACHE_DIR = CACHE_DIR / "pretrained"  # Downloaded pretrained weights (HuBERT)
+    MODEL_CACHE_DIR = CACHE_DIR / "pretrained"  # Downloaded pretrained weights (SSL backbones, ASR baselines)
     RUNS_DIR = REPO_ROOT / "runs"        # Training checkpoints (large, not committed)
     OUTPUT_DIR = REPO_ROOT / "outputs"   # Results tables and plots (committed)
     LABELS_DIR = DATA_DIR / "labels"     # Hand labels (committed: can't be regenerated)
@@ -71,48 +71,6 @@ class Config:
     MAX_AUDIO_SAMPLES = int(SAMPLE_RATE * MAX_AUDIO_LENGTH)  # 32000 samples
     
     # -------------------------------------------------------------------------
-    # MODEL SETTINGS
-    # -------------------------------------------------------------------------
-    # HuBERT-large: 24 transformer layers, 1024 hidden size, 315M params
-    # Why large vs base? Better representations, but slower/more memory
-    # For production, consider HuBERT-base (90M params) with slight accuracy trade-off
-    MODELSCOPE_MODEL_ID = "facebook/hubert-large-ls960-ft"
-    HIDDEN_SIZE = 1024  # Must match HuBERT-large architecture
-    
-    # Classifier settings
-    CLASSIFIER_DROPOUT = 0.1  # Standard dropout for regularization
-    
-    # -------------------------------------------------------------------------
-    # TRAINING SETTINGS
-    # -------------------------------------------------------------------------
-    # Batch size: Limited by GPU memory with 315M param model
-    # RTX 4090 (24GB) can handle 8-16; reduce for smaller GPUs
-    BATCH_SIZE = 8
-    
-    # Learning rates: Following transfer learning best practices
-    # - Higher LR (1e-4) for randomly initialized classifier head
-    # - Lower LR (1e-5) for pretrained encoder to avoid catastrophic forgetting
-    LEARNING_RATE = 1e-4          # For classifier head (warmup phase)
-    LEARNING_RATE_FINETUNE = 1e-5  # For encoder fine-tuning
-    
-    # Epochs: Two-phase training strategy
-    # Phase 1 (warmup): Train only classifier, encoder frozen
-    # Phase 2 (finetune): Unfreeze top encoder layers, lower LR
-    NUM_EPOCHS = 20
-    WARMUP_EPOCHS = 5
-    
-    # Number of top transformer layers to unfreeze in Phase 2
-    # Why 4? Trade-off between adaptation and preserving pretrained knowledge
-    # More layers = more adaptation but higher overfitting risk on small data
-    UNFREEZE_LAYERS = 4
-    
-    # Gradient clipping to prevent exploding gradients during fine-tuning
-    MAX_GRAD_NORM = 1.0
-    
-    # Weight decay for AdamW optimizer (L2 regularization)
-    WEIGHT_DECAY = 0.01
-    
-    # -------------------------------------------------------------------------
     # DATA SETTINGS
     # -------------------------------------------------------------------------
     # TORGO records every take on two microphones:
@@ -129,11 +87,6 @@ class Config:
     MIN_AUDIO_DURATION = 0.1   # seconds
     MAX_AUDIO_DURATION = 10.0  # seconds
     
-    # Whether to use class-weighted loss for imbalanced classes
-    # IMPORTANT: Set to True when classes have very different sample counts
-    # Uses "balanced" strategy: weight = n_samples / (n_classes * n_samples_for_class)
-    USE_CLASS_WEIGHTS = True
-    
     # -------------------------------------------------------------------------
     # AUGMENTATION
     # -------------------------------------------------------------------------
@@ -142,24 +95,11 @@ class Config:
     # (src/data/speech_commands_augment.py), SpecAugment (src/model/frontend.py).
     
     # -------------------------------------------------------------------------
-    # CURRICULUM LEARNING SETTINGS
+    # TRAINING
     # -------------------------------------------------------------------------
-    # Three-phase curriculum learning approach:
-    # Phase A: Train on control speakers (clean speech, closer to HuBERT pretraining)
-    # Phase B: Fine-tune on dysarthric speakers only (adapt to dysarthric patterns)
-    # Phase C: LOSO evaluation on dysarthric speakers
-    
-    CURRICULUM_CONTROL_EPOCHS = 15    # Phase A: epochs on control speakers
-    CURRICULUM_DYSARTHRIC_EPOCHS = 15  # Phase B: epochs on dysarthric speakers
-    CURRICULUM_UNFREEZE_LAYERS = 4     # Layers to unfreeze during fine-tuning
-    
-    # Phase A learning rates (control pretraining)
-    CURRICULUM_CONTROL_LR = 1e-4           # Higher LR for classifier warmup
-    CURRICULUM_CONTROL_LR_FINETUNE = 1e-5  # Lower LR when unfreezing encoder
-    
-    # Phase B learning rates (dysarthric fine-tuning)
-    CURRICULUM_DYSARTHRIC_LR = 5e-5        # Lower LR to preserve control knowledge
-    CURRICULUM_DYSARTHRIC_LR_ENCODER = 5e-6  # Even lower for encoder
+    # Fixed per-model recipes live next to their code and are never tuned on
+    # held-out results: src/training/ssl_recipe.py (pretrained speech
+    # backbones) and src/training/bcresnet_recipe.py (BC-ResNet).
 
 
 # Create a default config instance

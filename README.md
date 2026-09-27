@@ -1,6 +1,6 @@
 # Dysarthric Voice Command Classifier
 
-A deep learning system for recognizing voice commands from speakers with dysarthria, built on HuBERT with curriculum learning, trained and evaluated on the TORGO dataset.
+A deep learning system for recognizing voice commands from speakers with dysarthria, trained and evaluated on the TORGO dataset: pretrained self-supervised speech models (HuBERT-large, HuBERT-base, DistilHuBERT) as the accuracy reference, and a small BC-ResNet keyword spotter for on-device use.
 
 ## Overview
 
@@ -8,8 +8,8 @@ Dysarthria is a motor speech disorder that affects the muscles used for speaking
 
 **Key Features:**
 - 20 voice commands (10 digits + 10 directional/action commands)
-- HuBERT-large based architecture with learned attention pooling
-- Curriculum learning: pre-train on control speakers, fine-tune on dysarthric speakers
+- Pretrained speech backbones (HuBERT-large, HuBERT-base, DistilHuBERT) with a learned weighted sum of layers and attention pooling
+- Staged training: TORGO control speakers first, then dysarthric speakers, evaluated leave-one-speaker-out
 - Comprehensive audio augmentation pipeline
 
 ## Architecture
@@ -17,27 +17,29 @@ Dysarthria is a motor speech disorder that affects the muscles used for speaking
 ```mermaid
 flowchart LR
     subgraph input [Input]
-        Audio[Audio Waveform]
+        Audio[2 s waveform]
     end
-    subgraph hubert [HuBERT Pretrained]
+    subgraph backbone [Pretrained backbone: HuBERT-large / HuBERT-base / DistilHuBERT]
         FE[CNN Feature Extractor]
         FP[Feature Projection]
-        Enc[Transformer Encoder x24]
+        Enc[Transformer Encoder, 24 / 12 / 2 layers]
     end
-    subgraph custom [Custom Layers]
+    subgraph head [Command head]
+        WS[Weighted sum of all layers]
         AP[Attention Pooling]
         MLP[2-Layer MLP Classifier]
     end
     subgraph output [Output]
         Pred[Command Prediction]
     end
-    Audio --> FE --> FP --> Enc --> AP --> MLP --> Pred
+    Audio --> FE --> FP --> Enc --> WS --> AP --> MLP --> Pred
 ```
 
 The model uses:
-- **HuBERT-large** (315M parameters) as the speech encoder
-- **Attention pooling** to learn which audio frames are most important for classification
-- **2-layer MLP classifier** with GELU activation and dropout
+- A **pretrained self-supervised backbone**: HuBERT-large (315M parameters), HuBERT-base (95M) or DistilHuBERT (24M)
+- A **learned weighted sum** of every layer's output, so the head can use the middle layers, not only the last
+- **Attention pooling** to learn which audio frames matter most
+- A **2-layer MLP classifier** with GELU activation and dropout
 
 ## Development Journey
 
@@ -65,22 +67,25 @@ This project evolved through iterative improvements:
 ```
 dysarthric-voice-cmds/
 ├── src/
-│   ├── config.py              # Centralized configuration
-│   ├── data/
-│   │   ├── preprocessing.py   # TORGO dataset scanning
-│   │   ├── dataset.py         # PyTorch Dataset class
-│   │   └── augmentation.py    # Audio augmentation pipeline
+│   ├── config.py              # Paths, target commands, audio window
+│   ├── audio.py               # Silence trimming and the fixed 2 s window
+│   ├── data/                  # TORGO / Speech Commands loading and augmentation
 │   ├── model/
-│   │   ├── architecture.py    # HuBERT + classifier model
-│   │   └── utils.py           # Model utilities
-│   └── training/
-│       └── trainer.py         # Training and validation loops
+│   │   ├── backbones.py       # Pretrained speech backbones and how they load
+│   │   ├── architecture.py    # Weighted-sum + attention-pooling command classifier
+│   │   └── bcresnet.py        # BC-ResNet
+│   ├── training/              # Recipes and loops (SSL backbones, BC-ResNet), LOSO helpers
+│   ├── eval/                  # Evaluation harness
+│   └── baselines/asr/         # Whisper / Parakeet zero-shot baselines
 ├── scripts/
-│   └── train.py               # 3-phase curriculum learning training script
+│   ├── finetune_ssl.py        # Pretrained speech models (step 2)
+│   ├── train_ssl_all.sh       # ...every backbone and seed
+│   ├── pretrain_bcresnet.py   # BC-ResNet stage 1
+│   └── finetune_bcresnet.py   # BC-ResNet stages 2-3
 ├── data/                      # Gitignored except README: datasets and caches
 │   ├── raw/TORGO/             # TORGO as downloaded
-│   └── cache/pretrained/      # Cached HuBERT weights
-├── runs/                      # Gitignored: training checkpoints
+│   └── cache/pretrained/      # Cached pretrained weights
+├── runs/                      # Gitignored: training checkpoints and eval runs
 ├── outputs/                   # Results tables and plots
 └── requirements.txt           # Python dependencies
 ```
@@ -117,51 +122,38 @@ bash scripts/download_torgo.sh
 
 This fetches the four archives from the [TORGO Database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html) and extracts them into `data/raw/TORGO/`. See [data/README.md](data/README.md) for the layout.
 
-### 4. Download HuBERT model
+### 4. Pretrained speech models
 
-The HuBERT model will be automatically downloaded via ModelScope on first training run. The model is cached in `data/cache/pretrained/` for subsequent runs.
+`scripts/finetune_ssl.py` downloads its backbone from Hugging Face on first use and caches it in `data/cache/pretrained/`:
 
-Alternatively, you can pre-cache it:
+| Backbone | Checkpoint | Params | Layers |
+|---|---|---|---|
+| `hubert-large` | `facebook/hubert-large-ll60k` | 315M | 24 |
+| `hubert-base` | `facebook/hubert-base-ls960` | 95M | 12 |
+| `distilhubert` | `ntu-spml/distilhubert` | 24M | 2 |
 
-```python
-from modelscope import snapshot_download
+If the machine cannot reach huggingface.co, use a mirror: `export HF_ENDPOINT=https://hf-mirror.com`.
 
-model_dir = snapshot_download("facebook/hubert-large-ls960-ft", cache_dir="data/cache/pretrained")
-```
+## Pretrained speech models (step 2)
 
-## Quick Start
-
-### Training the Model
+One run per backbone and seed: the TORGO control stage, a controls-only
+evaluation, then the dysarthric fine-tune once per held-out speaker.
 
 ```bash
-# Full training (Phase A + B + C with LOSO evaluation)
-python scripts/train.py
-
-# Skip LOSO evaluation for faster training
-python scripts/train.py --skip-phase-c
-
-# Customize training epochs
-python scripts/train.py --epochs-a 10 --epochs-b 10
-
-# Full options
-python scripts/train.py \
-    --epochs-a 20 \           # Phase A epochs (control pretraining)
-    --epochs-b 20 \           # Phase B epochs (dysarthric fine-tuning)
-    --batch-size 8 \          # Batch size
-    --seed 42 \               # Random seed for reproducibility
-    --skip-phase-c            # Skip LOSO evaluation
+python scripts/finetune_ssl.py --backbone hubert-large --seed 0
+python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke   # 1 epoch per stage, under runs/smoke/
+bash scripts/train_ssl_all.sh                   # every backbone x seeds 0-2; skips finished seeds
+BACKBONES="hubert-base" SEEDS="0" DEVICE=cuda:0 bash scripts/train_ssl_all.sh
 ```
 
-Run it once per seed (`--seed 0`, `--seed 1`, `--seed 2`); results are reported over at least 3 seeds.
+Outputs, per backbone `<b>` and seed `<k>`:
+- `runs/<b>/seed<k>/controls.pt`: after the control stage; every fold starts here
+- `runs/<b>/seed<k>/fold<i>_<speaker>.pt`: never trained on `<speaker>`
+- `runs/<b>/seed<k>/eval/`: the LOSO predictions for the eval harness (`src.eval.io.load_run`)
+- `runs/<b>-controls/seed<k>/eval/`: the control-stage model scored on all 8 dysarthric speakers
+- `runs/<b>/cost.json`, `runs/<b>-controls/cost.json`: parameters and MACs for one 2 s window
 
-**Output artifacts** (each seed has its own `runs/hubert-large/seed{K}/`, so seeds never overwrite each other):
-- `runs/hubert-large/seed{K}/phase_a_control_pretrained.pt` - Phase A checkpoint
-- `runs/hubert-large/seed{K}/phase_b_curriculum_trained.pt` - Phase B checkpoint (main model)
-- `runs/hubert-large/seed{K}/curriculum_fold{N}_{speaker}.pt` - Per-fold models from Phase C (never trained on `{speaker}`)
-- `runs/hubert-large/seed{K}/eval/` - Phase C predictions for the evaluation harness (`src.eval.io.load_run`)
-- `outputs/curriculum_cv_results.csv` - Cross-validation results (last seed run)
-- `outputs/curriculum_cv_results.json` - JSON format results
-- `outputs/label_mapping.json` - Label encoding
+A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it again.
 
 ## BC-ResNet (step 3)
 
@@ -190,68 +182,20 @@ never tuned on held-out results.
 | **Digits** | zero, one, two, three, four, five, six, seven, eight, nine |
 | **Actions** | yes, no, up, down, left, right, forward, back, select, menu |
 
-## Training Methodology
+## Training Methodology (pretrained speech models)
 
-### Curriculum Learning
+Every backbone uses the same recipe, fixed in `src/training/ssl_recipe.py` and never tuned on held-out results (there is no development set: the held-out speaker is the only unseen data).
 
-The model uses a three-phase curriculum learning approach:
+| Stage | Data | Epochs | Trainable | LR (head / encoder) |
+|---|---|---|---|---|
+| Control head warmup | 7 control speakers | 5 | head | 1e-4 / — |
+| Control fine-tune | 7 control speakers | 10 | head + top layers | 1e-5 / 1e-6 |
+| Dysarthric fine-tune (per fold) | the other 7 dysarthric speakers | 15 | head + top layers | 5e-5 / 5e-6 |
 
-**Phase A: Control Speaker Pre-training**
-- Train on non-dysarthric (control) speakers
-- Speech patterns closer to HuBERT's original training data
-- Establishes strong baseline representations
-
-**Phase B: Dysarthric Fine-tuning**
-- Fine-tune on dysarthric speakers only
-- Lower learning rate to preserve Phase A knowledge
-- Adapts to dysarthric speech patterns
-
-**Phase C: Leave-One-Speaker-Out (LOSO) Evaluation**
-- For each dysarthric speaker, Phase B is re-run from the Phase A checkpoint on the *other* dysarthric speakers, then the model is evaluated once on the held-out speaker
-- The final Phase B model is **not** reused here, since it was trained on every dysarthric speaker (including the one being held out)
-- The held-out speaker is never used for epoch/checkpoint selection
-- Reports both mean per-speaker accuracy and pooled (per-utterance) accuracy
-
-### Sub-Phase Training (within each curriculum phase)
-
-Each curriculum phase uses a two-stage training approach:
-
-1. **Warmup Stage**: Train only the classifier head with encoder frozen
-2. **Fine-tuning Stage**: Unfreeze top N transformer layers with differential learning rates
-
-**Phase A (Control Pretraining):**
-- Warmup: 1/3 of total epochs, classifier only
-- Fine-tune: 2/3 of total epochs, top layers unfrozen
-
-**Phase B (Dysarthric Fine-tuning):**
-- Full fine-tuning with lower learning rates to preserve Phase A knowledge
-
-### Command-Line Arguments
-
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--epochs-a` | Phase A epochs (control pretraining) | from config |
-| `--epochs-b` | Phase B epochs (dysarthric fine-tuning) | from config |
-| `--batch-size` | Training batch size | from config |
-| `--seed` | Random seed for reproducibility | 42 |
-| `--skip-phase-c` | Skip LOSO evaluation | False |
-
-### Hyperparameters
-
-| Parameter | Value |
-|-----------|-------|
-| Batch size | 8 |
-| Control pretraining LR | 1e-4 |
-| Control fine-tune LR | 5e-5 |
-| Dysarthric LR (classifier) | 5e-5 |
-| Dysarthric LR (encoder) | 5e-6 |
-| Weight decay | 0.01 |
-| Unfrozen encoder layers | 4 (top) |
-| Max audio length | 3 seconds |
-| Sample rate | 16kHz |
-| Class weighting | Enabled (balanced) |
-
-See `src/config.py` for all configurable parameters.
+- AdamW (weight decay 0.01), gradient clipping at 1.0, batch size 8, class-balanced cross-entropy, per-step cosine learning rate, last epoch kept.
+- Top layers: the top `min(4, layers)` transformer layers (4 of 24, 4 of 12, 2 of 2). The CNN front end, feature projection and positional convolution stay frozen.
+- Leave-one-speaker-out: each fold starts from the control-stage checkpoint and never sees its held-out speaker, who is scored once (both mics, first word attempt only, no augmentation).
+- Inside the backbone: one 200 ms time mask per 2 s clip (`mask_time_prob=0.05`, `mask_time_length=10`, `mask_time_min_masks=1`) and no layer drop, the same for every backbone.
 
 ## Dataset: TORGO
 
@@ -270,65 +214,34 @@ The [TORGO database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.htm
 Training only, generated on the fly; validation and test audio is never
 augmented.
 
-**TORGO (HuBERT and BC-ResNet)**, applied to the extracted word:
+**TORGO (pretrained speech models and BC-ResNet)**, applied to the extracted word:
 - Speed perturbation, factor from {0.9, 0.95, 1.0, 1.05, 1.1}
 - Random position within the 2 s window (the word is never cut)
 - Background noise with probability 0.8 at 5–20 dB SNR
 - Gain ±6 dB
 
-BC-ResNet also gets SpecAugment on its log-Mel features; HuBERT already masks
-time spans internally. **Speech Commands (BC-ResNet)** follows the BC-ResNet
-paper: ±100 ms shift and noise with probability 0.8, SpecAugment by width.
+BC-ResNet also gets SpecAugment on its log-Mel features; the pretrained speech
+models already mask time spans internally. **Speech Commands (BC-ResNet)**
+follows the BC-ResNet paper: ±100 ms shift and noise with probability 0.8,
+SpecAugment by width.
 
 Training needs the noise recordings in `data/raw/speech_commands_v2/train/_silence_/`
 (from `scripts/download_speech_commands.sh`, or copy just those 5 files).
 
 ## Model Architecture Details
 
-### HuBERT Encoder
+`SSLCommandClassifier` (`src/model/architecture.py`) is a pretrained backbone followed by a `CommandHead`:
 
-- **Model**: `facebook/hubert-large-ls960-ft`
-- **Parameters**: 315M total
-- **Architecture**: 24 transformer layers, 1024 hidden size
-- **Pre-training**: Self-supervised on LibriSpeech 960h
+1. **Weighted sum of layers**: every hidden state (25 / 13 / 3) is layer-normalised, then mixed with softmax weights learned in training (the SUPERB setup). It starts as a plain average.
+2. **Attention pooling** over time: a small network scores each frame; the output is the score-weighted average.
+3. **MLP classifier**: hidden → hidden/2 (GELU, dropout 0.1) → 20 commands.
 
-The CNN feature extractor and feature projection layers are always frozen. During fine-tuning, only the top 4 transformer layers are unfrozen.
-
-### Attention Pooling
-
-Instead of simple mean pooling, the model uses learned attention pooling:
-
-```python
-class AttentionPooling(nn.Module):
-    def __init__(self, hidden_size):
-        self.attention = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size // 4),
-            nn.Tanh(),
-            nn.Linear(hidden_size // 4, 1)
-        )
-    
-    def forward(self, hidden_states):
-        attention_weights = softmax(self.attention(hidden_states), dim=1)
-        return (hidden_states * attention_weights).sum(dim=1)
-```
-
-This allows the model to learn which audio frames are most relevant for classification.
-
-### Classification Head
-
-```python
-self.classifier = nn.Sequential(
-    nn.Linear(1024, 512),      # hidden_size -> hidden_size/2
-    nn.GELU(),
-    nn.Dropout(0.1),
-    nn.Linear(512, num_labels)  # -> num_classes
-)
-```
+The whole head is trained in every stage.
 
 ## Results
 
 - **Evaluation method**: Leave-one-speaker-out (LOSO) cross-validation over the 8 dysarthric speakers
-- **Note**: The previously reported ~87% came from an evaluation where each fold started from a model already trained on the held-out speaker and selected its best epoch on that speaker's test data, so it overstated generalization to unseen speakers. Re-run `python scripts/train.py` to regenerate `outputs/curriculum_cv_results.*` with the corrected protocol.
+- **Note**: The previously reported ~87% came from an evaluation where each fold started from a model already trained on the held-out speaker and selected its best epoch on that speaker's test data, so it overstated generalization to unseen speakers. The corrected runs come from `scripts/finetune_ssl.py` (see above).
 
 The outputs of that old evaluation have been removed from `outputs/`; its numbers should not be quoted.
 
@@ -353,30 +266,15 @@ Report in `outputs/step1-asr/` (head mic in `outputs/step1-asr/head-mic/`): `res
 
 ## API Reference
 
-### HuBERTForCommandClassification
+### SSLCommandClassifier
 
 ```python
-from src.model.architecture import HuBERTForCommandClassification
+from src.model.architecture import SSLCommandClassifier, set_trainable
+from src.model.backbones import BACKBONES, load_backbone
 
-model = HuBERTForCommandClassification(
-    model_path: str,           # Path to HuBERT model
-    num_labels: int,           # Number of classes
-    hidden_size: int = 1024,
-    classifier_dropout: float = 0.1,
-    freeze_encoder: bool = True,
-    freeze_feature_extractor: bool = True
-)
-
-# Forward pass
-outputs = model(
-    input_values: torch.Tensor,           # (batch, seq_len)
-    attention_mask: torch.Tensor = None,
-    labels: torch.Tensor = None,          # For computing loss
-    class_weights: torch.Tensor = None
-) -> dict  # {'logits': Tensor, 'loss': Tensor (if labels provided)}
-
-# Unfreeze top N encoder layers for fine-tuning
-model.unfreeze_encoder(num_layers=4)
+model = SSLCommandClassifier(load_backbone(BACKBONES["hubert-base"]), num_labels=20)
+outputs = model(input_values, labels=None, class_weights=None)  # {'logits', 'loss' if labels given}
+set_trainable(model, top_n=4)  # the head and the top 4 transformer layers; everything else frozen
 ```
 
 ### TORGOCommandDataset
@@ -403,6 +301,14 @@ dataset = TORGOCommandDataset(
 ### HuBERT
 
 > Hsu, W.N., Bolte, B., Tsai, Y.H.H., Lakhotia, K., Salakhutdinov, R., Mohamed, A. (2021) HuBERT: Self-Supervised Speech Representation Learning by Masked Prediction of Hidden Units. [arXiv:2106.07447](https://arxiv.org/abs/2106.07447)
+
+### DistilHuBERT
+
+> Chang, H.J., Yang, S.W., Lee, H.Y. (2022) DistilHuBERT: Speech Representation Learning by Layer-wise Distillation of Hidden-unit BERT. ICASSP 2022. [arXiv:2110.01900](https://arxiv.org/abs/2110.01900)
+
+### SUPERB (weighted sum of layers)
+
+> Yang, S.W. et al. (2021) SUPERB: Speech processing Universal PERformance Benchmark. Interspeech 2021. [arXiv:2105.01051](https://arxiv.org/abs/2105.01051)
 
 ## License
 
