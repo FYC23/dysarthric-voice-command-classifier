@@ -58,7 +58,8 @@ BUNDLE_FILES = (
     "outputs/step3-bcresnet/results.csv",
 )
 # Pinned to what the demo was tested with here. Gradio comes from sdk_version.
-PINNED = ("torch", "torchaudio", "transformers", "numpy", "scipy")
+# librosa: transformers' ParakeetFeatureExtractor imports it.
+PINNED = ("torch", "torchaudio", "transformers", "numpy", "scipy", "librosa")
 
 
 def check_checkpoint(path: Path) -> None:

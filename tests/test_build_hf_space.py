@@ -104,3 +104,9 @@ def test_bundle_runs_on_its_own(script, tmp_path, deploy):
     done = subprocess.run([sys.executable, "-c", code], cwd=out, env=env,
                           capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
+
+
+def test_requirements_include_librosa_for_parakeets_feature_extractor(script):
+    # transformers' ParakeetFeatureExtractor imports librosa; without it the Space's
+    # Parakeet panel only shows a load error
+    assert any(line.startswith("librosa==") for line in script.requirements_txt().splitlines())
