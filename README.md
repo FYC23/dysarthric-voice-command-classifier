@@ -199,6 +199,14 @@ python scripts/pretrain_bcresnet.py --tau 8 --seed 0            # stage 1 (add -
 python scripts/finetune_bcresnet.py --tau 8 --seed 0            # stages 2-3
 ```
 
+Or train every width and seed in one go (one GPU; safe to re-run, it skips finished
+steps and resumes pretraining; `DRY_RUN=1` prints the plan):
+
+```bash
+bash scripts/train_bcresnet_all.sh                               # TAUS="1 2 3 8" SEEDS="0 1 2"
+TAUS="8" SEEDS="0" DEVICE=cuda:0 bash scripts/train_bcresnet_all.sh
+```
+
 Outputs go to `runs/bcresnet-<τ>/seed<k>/`; the eval-harness run is in its `eval/`.
 Stage 2–3 hyperparameters are fixed in `src/training/bcresnet_recipe.py` and are
 never tuned on held-out results.
