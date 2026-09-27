@@ -8,11 +8,10 @@ import numpy as np
 import pytest
 import torch
 
-from conftest import SR, add_utterance, word_clip, write_wav
+from conftest import SR, write_wav
 import src.training.finetune as finetune
 from src.config import Config
 from src.data.noise import NoiseBank
-from src.data.preprocessing import scan_torgo_dataset
 from src.data.speech_commands import CLASSES
 from src.eval.constants import DYSARTHRIC_SPEAKERS
 from src.eval.cost import count_params
@@ -24,27 +23,11 @@ from src.training.finetune import (
     bcresnet_cost, run_finetuning,
 )
 
-GROUPS = {"F01": "F", "F03": "F", "F04": "F", "M01": "M", "M02": "M", "M03": "M",
-          "M04": "M", "M05": "M", "FC01": "FC"}
-WORDS = ("yes", "no", "menu")
 HEAD = SgdStage(epochs=1, peak_lr=0.01, warmup_epochs=0, batch_size=2, head_only=True,
                 cosine=False, class_weighted=True, drop_last=True)
 FULL = SgdStage(epochs=1, peak_lr=0.01, warmup_epochs=0, batch_size=2, class_weighted=True,
                 drop_last=True)
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "finetune_bcresnet.py"
-
-
-@pytest.fixture
-def small_torgo(tmp_path):
-    """8 dysarthric speakers and one control, three array-mic words each."""
-    root = tmp_path / "TORGO"
-    for i, (speaker, group) in enumerate(GROUPS.items()):
-        for j, word in enumerate(WORDS):
-            add_utterance(root, group, speaker, "Session1", f"{j + 1:04d}", word,
-                          {"wav_arrayMic": word_clip(seed=10 * i + j)})
-    samples = scan_torgo_dataset(root, Config.TARGET_COMMANDS, Config.MIC_TYPES,
-                                 Config.MIN_AUDIO_DURATION, Config.MAX_AUDIO_DURATION)
-    return samples.assign(seg_start=np.nan, seg_end=np.nan)
 
 
 def pretrained_checkpoint(tmp_path, tau=1):

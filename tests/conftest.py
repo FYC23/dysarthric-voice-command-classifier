@@ -122,3 +122,24 @@ def fake_speech_commands(tmp_path: Path) -> Path:
     for n in range(2):
         write_wav(root / "test" / "_silence_" / f"silence_{n}.wav", rng.normal(0, 0.05, SR))
     return root
+
+
+SMALL_TORGO_GROUPS = {"F01": "F", "F03": "F", "F04": "F", "M01": "M", "M02": "M",
+                      "M03": "M", "M04": "M", "M05": "M", "FC01": "FC"}
+SMALL_TORGO_WORDS = ("yes", "no", "menu")
+
+
+@pytest.fixture
+def small_torgo(tmp_path):
+    """The scanned table of 8 dysarthric speakers and one control, three array-mic words each."""
+    from src.config import Config
+    from src.data.preprocessing import scan_torgo_dataset
+
+    root = tmp_path / "TORGO"
+    for i, (speaker, group) in enumerate(SMALL_TORGO_GROUPS.items()):
+        for j, word in enumerate(SMALL_TORGO_WORDS):
+            add_utterance(root, group, speaker, "Session1", f"{j + 1:04d}", word,
+                          {"wav_arrayMic": word_clip(seed=10 * i + j)})
+    samples = scan_torgo_dataset(root, Config.TARGET_COMMANDS, Config.MIC_TYPES,
+                                 Config.MIN_AUDIO_DURATION, Config.MAX_AUDIO_DURATION)
+    return samples.assign(seg_start=np.nan, seg_end=np.nan)
