@@ -66,6 +66,37 @@ subfolder); ASR-only report in [`outputs/step1-asr/`](outputs/step1-asr/).
 - **The ASR models are not fine-tuned.** They show what an off-the-shelf system gives a
   dysarthric user, not how well a large model could do with adaptation.
 
+## Demo
+
+A Gradio app puts BC-ResNet-8 next to zero-shot Parakeet-TDT-0.6B-v3. Record or upload
+one of the 20 commands; both models hear the same 2 s window, and the page shows each
+answer with the model's size and its CPU latency.
+
+```bash
+python app.py              # BC-ResNet-8 (runs/bcresnet-8/seed0/deploy.pt) + Parakeet
+python app.py --no-asr     # BC-ResNet only; starts in seconds
+```
+
+The demo contains no TORGO audio: TORGO's license covers academic use, not
+redistribution. `deploy.pt` has trained on every TORGO dysarthric clip, so to score a
+TORGO clip (for example in a screen recording), load the fold checkpoint that held its
+speaker out:
+
+```bash
+python app.py --checkpoint runs/bcresnet-8/seed0/fold1_F01.pt   # then upload an F01 clip
+```
+
+Folds: `fold1_F01`, `fold2_F03`, `fold3_F04`, `fold4_M01`, `fold5_M02`, `fold6_M03`,
+`fold7_M04`, `fold8_M05`.
+
+To publish it as a Hugging Face Space, build the bundle (app, the modules it needs, the
+deploy model, pinned requirements) and upload the folder:
+
+```bash
+python scripts/build_hf_space.py          # writes build/hf_space/
+hf upload <user>/<space> build/hf_space --repo-type space
+```
+
 ## Method
 
 ```mermaid
@@ -74,7 +105,7 @@ flowchart LR
     S1 --> S2[Stage 2<br/>7 TORGO control speakers<br/>new 20-class head]
     S2 --> F[Stage 3, 8 folds<br/>train on 7 dysarthric speakers]
     F --> E[Score the held-out speaker<br/>= reported accuracy]
-    S2 --> D[Stage 3, final model<br/>train on all 8 = deploy.pt]
+    S2 --> D[Stage 3, final model<br/>train on all 8 = deploy.pt<br/>used in the demo]
 ```
 
 1. **Pretrain on typical speech.** BC-ResNet trains on Speech Commands v2 with the
@@ -215,8 +246,10 @@ dysarthric-voice-command-classifier/
 │   │   └── architecture.py    # Weighted-sum + attention-pooling head (SSL reference)
 │   ├── training/              # Recipes and loops, leave-one-speaker-out helpers
 │   ├── eval/                  # Evaluation harness, reports and plots
-│   └── baselines/asr/         # Whisper / Parakeet zero-shot baselines
-├── scripts/                   # Download, train, baseline and report entry points
+│   ├── baselines/asr/         # Whisper / Parakeet zero-shot baselines
+│   └── demo/                  # Demo model code: audio input, keyword spotter, handler
+├── app.py                     # Gradio demo
+├── scripts/                   # Download, train, baseline, report and Space-build entry points
 ├── docs/                      # SSL reference model
 ├── data/                      # Gitignored except README and labels: datasets and caches
 ├── runs/                      # Gitignored: checkpoints and eval runs

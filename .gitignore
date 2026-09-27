@@ -31,9 +31,8 @@ outputs_10 classes/
 venv/
 .venv/
 
-# Hugging Face Spaces
-hf_spaces_package/
-dysarthric-voice-cmds/
+# Hugging Face Space bundle (scripts/build_hf_space.py)
+/build
 # Local agent/tooling state and AI planning docs
 .claude/
 .superpowers/
