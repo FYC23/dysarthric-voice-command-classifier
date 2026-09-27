@@ -72,6 +72,12 @@ A Gradio app puts BC-ResNet-8 next to zero-shot Parakeet-TDT-0.6B-v3. Record or 
 one of the 20 commands; both models hear the same 2 s window, and the page shows each
 answer with the model's size and its CPU latency.
 
+![The demo scoring a TORGO clip: BC-ResNet-8 answers "down" at 100% in 130 ms; Parakeet hears "Let's go." and maps it to "no" in 6.7 s](docs/demo.gif)
+
+*TORGO speaker F01 (severe dysarthria) says "down". BC-ResNet-8 is scored with
+`fold1_F01.pt`, which never trained on F01. Timings on an M2 Pro CPU; the wait is sped
+up 4×. One selected example: the Results table above is the evidence.*
+
 ```bash
 python app.py              # BC-ResNet-8 (runs/bcresnet-8/seed0/deploy.pt) + Parakeet
 python app.py --no-asr     # BC-ResNet only; starts in seconds
@@ -88,14 +94,6 @@ python app.py --checkpoint runs/bcresnet-8/seed0/fold1_F01.pt   # then upload an
 
 Folds: `fold1_F01`, `fold2_F03`, `fold3_F04`, `fold4_M01`, `fold5_M02`, `fold6_M03`,
 `fold7_M04`, `fold8_M05`.
-
-To publish it as a Hugging Face Space, build the bundle (app, the modules it needs, the
-deploy model, pinned requirements) and upload the folder:
-
-```bash
-python scripts/build_hf_space.py          # writes build/hf_space/
-hf upload <user>/<space> build/hf_space --repo-type space
-```
 
 ## Method
 
@@ -249,8 +247,8 @@ dysarthric-voice-command-classifier/
 │   ├── baselines/asr/         # Whisper / Parakeet zero-shot baselines
 │   └── demo/                  # Demo model code: audio input, keyword spotter, handler
 ├── app.py                     # Gradio demo
-├── scripts/                   # Download, train, baseline, report and Space-build entry points
-├── docs/                      # SSL reference model
+├── scripts/                   # Download, train, baseline and report entry points
+├── docs/                      # SSL reference model and the demo GIF
 ├── data/                      # Gitignored except README and labels: datasets and caches
 ├── runs/                      # Gitignored: checkpoints and eval runs
 ├── outputs/                   # Results tables and figures
