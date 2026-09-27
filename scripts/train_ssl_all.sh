@@ -4,9 +4,11 @@
 # time, for a single GPU.
 #
 # Safe to re-run after a crash or disconnect: a seed whose
-# runs/<backbone>/seed<k>/eval/run.json exists is skipped; an unfinished one
-# starts again from scratch. Stops at the first failure. Smoke runs
-# (runs/smoke/) are never looked at.
+# runs/<backbone>/seed<k>/ holds both eval/run.json and controls.pt is
+# skipped; an unfinished one starts again from scratch. Stops at the first
+# failure. Refuses to start while any seed directory holds an eval/run.json
+# without controls.pt: that is a run left by the removed scripts/train.py.
+# Smoke runs (runs/smoke/) are never looked at.
 #
 # Results: runs/<backbone>/seed<k>/ and runs/<backbone>-controls/seed<k>/.
 # Logs:    runs/<backbone>/seed<k>/finetune.log
@@ -46,12 +48,25 @@ run_step() {
     "$@" 2>&1 | tee -a "${log}"
 }
 
+# A run.json without controls.pt came from the removed scripts/train.py. Check
+# every seed before training any, so a leftover never stops the script hours in.
+for seed in ${SEEDS}; do
+    for backbone in ${BACKBONES}; do
+        dir="runs/${backbone}/seed${seed}"
+        if [[ -f "${dir}/eval/run.json" && ! -f "${dir}/controls.pt" ]]; then
+            echo "error: ${dir}/eval/run.json exists without controls.pt: it looks like" \
+                 "output of the removed scripts/train.py. Move or delete ${dir} first." >&2
+            exit 1
+        fi
+    done
+done
+
 start=$(date +%s)
 for seed in ${SEEDS}; do
     for backbone in ${BACKBONES}; do
         dir="runs/${backbone}/seed${seed}"
-        if [[ -f "${dir}/eval/run.json" ]]; then
-            echo "[skip] ${backbone} seed ${seed}: ${dir}/eval/run.json exists"
+        if [[ -f "${dir}/eval/run.json" && -f "${dir}/controls.pt" ]]; then
+            echo "[skip] ${backbone} seed ${seed}: ${dir} is finished (eval/run.json, controls.pt)"
             continue
         fi
         echo "[$(date '+%F %T')] ${backbone}, seed ${seed} -> ${dir}"

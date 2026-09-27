@@ -117,14 +117,35 @@ def test_control_stage_and_folds_train_on_the_right_speakers(small_torgo, tmp_pa
     assert loads == [CONTROLS_CHECKPOINT] * 8  # every fold starts from the control stage
 
 
+def seed_with(job, *files):
+    """A seed directory holding `files` (paths relative to it)."""
+    for name in files:
+        (job.out_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (job.out_dir / name).write_text("{}")
+
+
+def refuse_to_load_a_model(monkeypatch):
+    monkeypatch.setattr(ssl_finetune, "build_model",
+                        lambda job: pytest.fail("loaded a model for a seed it must not train"))
+
+
 def test_a_finished_seed_is_never_overwritten(small_torgo, tmp_path, monkeypatch):
     job = make_job(tmp_path)
-    (job.out_dir / EVAL_DIR).mkdir(parents=True)
-    (job.out_dir / EVAL_DIR / "run.json").write_text("{}")
-    monkeypatch.setattr(ssl_finetune, "build_model",
-                        lambda job: pytest.fail("loaded a model for a finished seed"))
+    seed_with(job, f"{EVAL_DIR}/run.json", CONTROLS_CHECKPOINT)
+    refuse_to_load_a_model(monkeypatch)
     with pytest.raises(FileExistsError, match="finished"):
         run_ssl_finetuning(job, small_torgo)
+
+
+def test_a_run_left_by_the_removed_train_script_is_refused(small_torgo, tmp_path, monkeypatch):
+    # scripts/train.py wrote runs/hubert-large/seed<k>/eval/run.json but no controls.pt
+    job = make_job(tmp_path)
+    seed_with(job, f"{EVAL_DIR}/run.json")
+    refuse_to_load_a_model(monkeypatch)
+    with pytest.raises(FileExistsError, match="scripts/train.py") as error:
+        run_ssl_finetuning(job, small_torgo)
+    assert "finished" not in str(error.value) and str(job.out_dir) in str(error.value)
+    assert sorted(p.name for p in job.out_dir.rglob("*")) == [EVAL_DIR, "run.json"]
 
 
 def test_a_crashed_seed_runs_again(small_torgo, tmp_path):

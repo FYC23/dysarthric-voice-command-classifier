@@ -78,11 +78,20 @@ def ssl_cost(model: SSLCommandClassifier) -> CostProfile:
 
 
 def _refuse_finished(job: SslJob) -> None:
-    """The LOSO run is written last, so its run.json marks a finished seed."""
+    """
+    The LOSO run is written last, after controls.pt, so the two together mark
+    a finished seed. A run.json alone was left by the removed scripts/train.py
+    (same runs/hubert-large/seed<k>/ path), never by this code.
+    """
     marker = job.out_dir / EVAL_DIR / METADATA_FILE
-    if marker.exists():
+    if not marker.exists():
+        return
+    if (job.out_dir / CONTROLS_CHECKPOINT).exists():
         raise FileExistsError(f"{job.out_dir} holds a finished run ({marker}); "
                               "delete that seed's directory to train it again")
+    raise FileExistsError(f"{marker} exists without {CONTROLS_CHECKPOINT}: it looks like "
+                          "output of the removed scripts/train.py; move or delete "
+                          f"{job.out_dir} before training this seed")
 
 
 def _save(model: SSLCommandClassifier, path: Path, job: SslJob,

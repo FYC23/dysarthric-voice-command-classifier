@@ -154,6 +154,8 @@ Outputs, per backbone `<b>` and seed `<k>`:
 - `runs/<b>/cost.json`, `runs/<b>-controls/cost.json`: parameters and MACs for one 2 s window
 
 A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it again.
+Runs left under `runs/hubert-large/` by the removed `scripts/train.py` (an `eval/run.json`
+with no `controls.pt`) must be moved or deleted first; both scripts refuse to start over one.
 
 ## BC-ResNet (step 3)
 

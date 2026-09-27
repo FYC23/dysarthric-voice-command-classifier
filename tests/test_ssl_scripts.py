@@ -71,21 +71,31 @@ def test_array_mic_summary_averages_speakers():
     assert "Array mic, speaker-averaged: 0.5000" in text
 
 
-def run_all_script(tmp_path, **env):
+def dry_run_all_script(tmp_path, **env):
     copy = tmp_path / "repo" / "scripts" / "train_ssl_all.sh"
     copy.parent.mkdir(parents=True)
     shutil.copy(SCRIPTS / "train_ssl_all.sh", copy)
     return subprocess.run(["bash", str(copy)], env={**os.environ, "DRY_RUN": "1", **env},
-                          capture_output=True, text=True, check=True).stdout
+                          capture_output=True, text=True)
+
+
+def run_all_script(tmp_path, **env):
+    result = dry_run_all_script(tmp_path, **env)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def seed_files(tmp_path, seed_dir, *files):
+    for name in files:
+        path = tmp_path / "repo" / "runs" / seed_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
 
 
 def test_all_script_skips_only_finished_seeds_smallest_first(tmp_path):
-    finished = tmp_path / "repo" / "runs" / "hubert-base" / "seed0" / "eval"
-    finished.mkdir(parents=True)
-    (finished / "run.json").write_text("{}")
-    smoke = tmp_path / "repo" / "runs" / "smoke" / "distilhubert" / "seed0" / "eval"
-    smoke.mkdir(parents=True)
-    (smoke / "run.json").write_text("{}")  # a smoke run never counts as finished
+    seed_files(tmp_path, "hubert-base/seed0", "eval/run.json", "controls.pt")
+    # a smoke run never counts as finished
+    seed_files(tmp_path, "smoke/distilhubert/seed0", "eval/run.json", "controls.pt")
     out = run_all_script(tmp_path, SEEDS="0")
     assert "[skip] hubert-base seed 0" in out
     assert "--backbone hubert-base" not in out
@@ -97,3 +107,13 @@ def test_all_script_passes_device_and_workers(tmp_path):
     out = run_all_script(tmp_path, BACKBONES="distilhubert", SEEDS="1", DEVICE="cuda:1",
                          NUM_WORKERS="4")
     assert "--backbone distilhubert --seed 1 --device cuda:1 --num-workers 4" in out
+
+
+def test_all_script_stops_on_a_run_left_by_the_removed_train_script(tmp_path):
+    # scripts/train.py wrote runs/hubert-large/seed<k>/eval/run.json but no controls.pt
+    seed_files(tmp_path, "hubert-large/seed1", "eval/run.json")
+    result = dry_run_all_script(tmp_path, SEEDS="0 1")
+    assert result.returncode != 0
+    assert "runs/hubert-large/seed1" in result.stderr and "scripts/train.py" in result.stderr
+    assert "finetune_ssl.py" not in result.stdout  # stops before training anything
+    assert "[skip]" not in result.stdout
