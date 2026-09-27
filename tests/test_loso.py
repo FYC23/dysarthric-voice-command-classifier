@@ -13,7 +13,7 @@ from src.config import Config
 from src.eval.io import load_run
 from src.eval.schema import CLIP_KEY, EvalValidationError
 from src.training import bcresnet_recipe, finetune
-from src.training.device import pick_device
+from src.training.device import attention_for, pick_device
 from src.training.loso import (
     ID2LABEL, LABEL2ID, TORGO_CLASSES, UNVALIDATED_PREDICTIONS, balanced_class_weights,
     build_loso_run, fold_predictions, save_loso_run, set_seed, split_fold, with_label_ids,
@@ -148,6 +148,14 @@ def test_with_label_ids_rejects_other_words():
 
 def test_pick_device_honours_an_explicit_name():
     assert pick_device("cpu") == torch.device("cpu")
+
+
+def test_attention_is_eager_on_mps_only():
+    # MPS scaled_dot_product_attention refuses dropout on inputs that need no
+    # grad (frozen layers); everywhere else the library default (SDPA) stays.
+    assert attention_for(torch.device("mps")) == "eager"
+    for name in ("cpu", "cuda", "cuda:1"):
+        assert attention_for(torch.device(name)) is None, name
 
 
 def test_bcresnet_code_uses_the_shared_helpers():

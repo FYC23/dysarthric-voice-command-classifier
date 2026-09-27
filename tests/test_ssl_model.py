@@ -8,6 +8,7 @@ from src.model.architecture import (
     CommandHead, LayerWeightedSum, SSLCommandClassifier, set_trainable,
 )
 from src.model.backbones import load_backbone
+from src.training.device import attention_for
 
 WINDOW = 32000
 
@@ -154,13 +155,28 @@ def test_set_trainable_freezes_the_cnn_front_ends_grad_flag(tmp_path):
     assert all(not h.requires_grad for h in out.hidden_states)
 
 
+
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
 @pytest.mark.parametrize("top_n", [0, 1])
 def test_partly_frozen_classifier_trains_on_mps(tmp_path, top_n):
     # Frozen layers see inputs that need no grad; with attention dropout on,
     # that is exactly where MPS scaled_dot_product_attention refuses to run.
-    model = make_model(tmp_path, layers=3).to("mps").train()
+    mps = torch.device("mps")
+    backbone = load_backbone(tiny_spec(tmp_path, 3), attn_implementation=attention_for(mps))
+    model = SSLCommandClassifier(backbone, num_labels=20).to(mps).train()
     set_trainable(model, top_n)
     assert model.backbone.config.attention_dropout > 0
-    out = model(torch.randn(2, WINDOW, device="mps"), labels=torch.tensor([0, 5], device="mps"))
+    out = model(torch.randn(2, WINDOW, device=mps), labels=torch.tensor([0, 5], device=mps))
     out["loss"].backward()
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
+def test_sdpa_on_mps_still_rejects_dropout_on_frozen_layers(tmp_path):
+    # The failure attention_for works around; if PyTorch fixes it, this fails
+    # and the MPS special case can go.
+    mps = torch.device("mps")
+    backbone = load_backbone(tiny_spec(tmp_path, 3), attn_implementation="sdpa")
+    model = SSLCommandClassifier(backbone, num_labels=20).to(mps).train()
+    set_trainable(model, 0)
+    with pytest.raises(NotImplementedError, match="dropout"):
+        model(torch.randn(2, WINDOW, device=mps))

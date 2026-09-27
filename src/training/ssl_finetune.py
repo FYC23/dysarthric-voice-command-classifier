@@ -26,6 +26,7 @@ from src.model.architecture import SSLCommandClassifier
 from src.model.backbones import (
     MASKING_OVERRIDES, BackboneSpec, load_backbone, load_feature_extractor,
 )
+from src.training.device import attention_for
 from src.training.loso import (
     ID2LABEL, TORGO_CLASSES, balanced_class_weights, fold_predictions, save_loso_run,
     set_seed, split_fold, with_label_ids,
@@ -63,8 +64,10 @@ class SslJob:
 
 
 def build_model(job: SslJob) -> SSLCommandClassifier:
-    """A fresh classifier on the pretrained backbone, on the CPU."""
-    return SSLCommandClassifier(load_backbone(job.backbone, job.cache_dir), len(TORGO_CLASSES))
+    """A fresh classifier on the pretrained backbone, on the CPU; attention suits job.device."""
+    backbone = load_backbone(job.backbone, job.cache_dir,
+                             attn_implementation=attention_for(job.device))
+    return SSLCommandClassifier(backbone, len(TORGO_CLASSES))
 
 
 def ssl_cost(model: SSLCommandClassifier) -> CostProfile:
@@ -88,7 +91,9 @@ def _save(model: SSLCommandClassifier, path: Path, job: SslJob,
     torch.save({"model_state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
                 "backbone": job.backbone.name, "hf_id": job.backbone.hf_id,
                 "seed": job.seed, "classes": list(TORGO_CLASSES),
-                "masking": dict(MASKING_OVERRIDES), "stages": [asdict(s) for s in stages],
+                "masking": dict(MASKING_OVERRIDES),
+                "attn_implementation": model.backbone.config._attn_implementation,
+                "stages": [asdict(s) for s in stages],
                 "train_speakers": sorted(set(train_speakers))}, path)
 
 

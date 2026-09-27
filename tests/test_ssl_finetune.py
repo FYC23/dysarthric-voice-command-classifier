@@ -71,6 +71,25 @@ def test_checkpoints_record_what_produced_them(small_torgo, tmp_path):
     assert fold["backbone"] == "tiny-hubert" and fold["hf_id"] == job.backbone.hf_id
     assert fold["classes"] == list(TORGO_CLASSES) and fold["seed"] == 0
     assert fold["masking"] == dict(MASKING_OVERRIDES)
+    used = build_model(job).backbone.config._attn_implementation
+    assert controls["attn_implementation"] == fold["attn_implementation"] == used
+
+
+@pytest.mark.parametrize("device, expected", [("mps", "eager"), ("cpu", None)])
+def test_build_model_picks_attention_for_the_jobs_device(tmp_path, monkeypatch,
+                                                         device, expected):
+    asked = []
+    real = ssl_finetune.load_backbone
+
+    def spy(spec, cache_dir=None, attn_implementation=None):
+        asked.append(attn_implementation)
+        return real(spec, cache_dir, attn_implementation=attn_implementation)
+
+    monkeypatch.setattr(ssl_finetune, "load_backbone", spy)
+    model = build_model(make_job(tmp_path, device=torch.device(device)))  # stays on the CPU
+    assert asked == [expected]
+    if expected is not None:
+        assert model.backbone.config._attn_implementation == expected
 
 
 def test_control_stage_and_folds_train_on_the_right_speakers(small_torgo, tmp_path,

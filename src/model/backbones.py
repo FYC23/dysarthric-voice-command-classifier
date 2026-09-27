@@ -30,12 +30,6 @@ MASKING_OVERRIDES: Mapping[str, object] = MappingProxyType({
     "layerdrop": 0.0,
 })
 
-# PyTorch's MPS scaled_dot_product_attention refuses dropout whenever its
-# inputs need no grad (every frozen layer in training mode), and the
-# checkpoints keep attention_dropout=0.1. Eager attention computes the same
-# thing on every device; at 99 frames per window it costs nothing noticeable.
-ATTENTION_IMPLEMENTATION = "eager"
-
 
 @dataclass(frozen=True)
 class BackboneSpec:
@@ -61,14 +55,16 @@ def _cache(cache_dir: Optional[Path]) -> Optional[str]:
     return str(cache_dir) if cache_dir is not None else None
 
 
-def load_backbone(spec: BackboneSpec, cache_dir: Optional[Path] = None) -> HubertModel:
+def load_backbone(spec: BackboneSpec, cache_dir: Optional[Path] = None,
+                  attn_implementation: Optional[str] = None) -> HubertModel:
     """
-    The pretrained backbone with MASKING_OVERRIDES applied and eager
-    attention (see ATTENTION_IMPLEMENTATION). Downloads from Hugging Face on
-    first use; set HF_ENDPOINT to use a mirror.
+    The pretrained backbone with MASKING_OVERRIDES applied. Downloads from
+    Hugging Face on first use; set HF_ENDPOINT to use a mirror.
+    `attn_implementation` ("eager", "sdpa", ...) picks the attention kernel;
+    None keeps the library default (see src/training/device.attention_for).
     """
     return HubertModel.from_pretrained(spec.hf_id, cache_dir=_cache(cache_dir),
-                                       attn_implementation=ATTENTION_IMPLEMENTATION,
+                                       attn_implementation=attn_implementation,
                                        **MASKING_OVERRIDES)
 
 
