@@ -93,6 +93,29 @@ def test_set_trainable_top_n_whatever_the_starting_state(tmp_path, start_trainab
     assert {f"backbone.encoder.layers.5.{n}" for n in per_layer} <= backbone
 
 
+def expected_trainable_names(model, top_n):
+    """The exact set of parameter names set_trainable(model, top_n) should leave trainable."""
+    layers = model.backbone.encoder.layers
+    num_layers = len(layers)
+    backbone = {
+        f"backbone.encoder.layers.{i}.{n}"
+        for i in range(num_layers - top_n, num_layers)
+        for n, _ in layers[i].named_parameters()
+    }
+    head = {f"head.{n}" for n, _ in model.head.named_parameters()}
+    return head | backbone
+
+
+@pytest.mark.parametrize("start_trainable", [True, False])
+@pytest.mark.parametrize("top_n", [0, 1, 6])
+def test_set_trainable_exact_trainable_set(tmp_path, top_n, start_trainable):
+    model = make_model(tmp_path, layers=6)
+    for p in model.parameters():
+        p.requires_grad_(start_trainable)  # True is the bug-2 case: built unfrozen
+    set_trainable(model, top_n)
+    assert trainable_names(model) == expected_trainable_names(model, top_n)
+
+
 def test_set_trainable_zero_is_head_only(tmp_path):
     model = make_model(tmp_path, layers=3)
     set_trainable(model, 0)
@@ -102,16 +125,30 @@ def test_set_trainable_zero_is_head_only(tmp_path):
 def test_set_trainable_all_layers_keeps_the_front_end_frozen(tmp_path):
     model = make_model(tmp_path, layers=2, stable=True)
     set_trainable(model, 2)
-    frozen = {n for n, p in model.named_parameters() if not p.requires_grad}
+    trainable = trainable_names(model)
     for prefix in ("backbone.feature_extractor.", "backbone.feature_projection.",
                    "backbone.encoder.pos_conv_embed.", "backbone.encoder.layer_norm.",
                    "backbone.masked_spec_embed"):
-        assert any(n.startswith(prefix) for n in frozen), prefix
-    assert not any(n.startswith(prefix) for n in trainable_names(model)
-                   for prefix in ("backbone.feature_extractor.", "backbone.encoder.layer_norm."))
+        assert not any(n.startswith(prefix) for n in trainable), prefix
 
 
 @pytest.mark.parametrize("top_n", [-1, 4])
 def test_set_trainable_rejects_impossible_counts(tmp_path, top_n):
     with pytest.raises(ValueError, match="top_n"):
         set_trainable(make_model(tmp_path, layers=3), top_n)
+
+
+def test_set_trainable_freezes_the_cnn_front_ends_grad_flag(tmp_path):
+    """
+    HubertFeatureEncoder.forward force-sets its output's requires_grad to True
+    whenever the module's own `_requires_grad` flag is set and the model is
+    training -- regardless of its parameters' requires_grad. set_trainable
+    must clear that flag too, or the "frozen" CNN still gets a live
+    autograd graph built through it on every training step.
+    """
+    model = make_model(tmp_path, layers=2)
+    set_trainable(model, 0)
+    model.train()
+    out = model.backbone(input_values=torch.randn(2, WINDOW), output_hidden_states=True)
+    assert out.hidden_states[0].requires_grad is False
+    assert all(not h.requires_grad for h in out.hidden_states)

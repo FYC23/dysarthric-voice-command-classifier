@@ -115,12 +115,20 @@ def set_trainable(model: SSLCommandClassifier, top_n: int) -> None:
     transformer layers train, everything else is frozen (CNN front end,
     feature projection, positional convolution, final encoder layer norm and
     the lower layers). Never leaves a parameter in its previous state.
+
+    Also clears the CNN front end's own `_requires_grad` flag (via
+    `_freeze_parameters`, HubertFeatureEncoder's usual entry point): its
+    forward force-sets its output tensor's requires_grad whenever that flag
+    is set and the model is training, regardless of its parameters'
+    requires_grad, which would otherwise build a live autograd graph through
+    a "frozen" CNN on every step.
     """
     layers = model.backbone.encoder.layers
     if not 0 <= top_n <= len(layers):
         raise ValueError(f"top_n must be in [0, {len(layers)}], got {top_n}")
     for p in model.backbone.parameters():
         p.requires_grad_(False)
+    model.backbone.feature_extractor._freeze_parameters()
     for layer in layers[len(layers) - top_n:]:
         for p in layer.parameters():
             p.requires_grad_(True)
