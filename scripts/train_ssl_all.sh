@@ -5,10 +5,14 @@
 #
 # Safe to re-run after a crash or disconnect: a seed whose
 # runs/<backbone>/seed<k>/ holds both eval/run.json and controls.pt is
-# skipped; an unfinished one starts again from scratch. Stops at the first
-# failure. Refuses to start while any seed directory holds an eval/run.json
-# without controls.pt: that is a run left by the removed scripts/train.py.
-# Smoke runs (runs/smoke/) are never looked at.
+# skipped; an unfinished one resumes (every run gets --resume): it keeps
+# controls.pt and each finished fold<i>_<speaker>.pt and trains only the rest,
+# so a crash costs at most the control stage or the one fold it hit. A kept
+# checkpoint must match the recipe, data and seed of this run, or the seed
+# stops with an error. Stops at the first failure. Refuses to start while any
+# seed directory holds an eval/run.json without controls.pt: that is a run
+# left by the removed scripts/train.py. Smoke runs (runs/smoke/) are never
+# looked at.
 #
 # Results: runs/<backbone>/seed<k>/ and runs/<backbone>-controls/seed<k>/.
 # Logs:    runs/<backbone>/seed<k>/finetune.log
@@ -71,7 +75,8 @@ for seed in ${SEEDS}; do
         fi
         echo "[$(date '+%F %T')] ${backbone}, seed ${seed} -> ${dir}"
         run_step "${dir}/finetune.log" "${PYTHON}" -u scripts/finetune_ssl.py \
-            --backbone "${backbone}" --seed "${seed}" ${common_args[@]+"${common_args[@]}"}
+            --backbone "${backbone}" --seed "${seed}" ${common_args[@]+"${common_args[@]}"} \
+            --resume
     done
 done
 echo "[$(date '+%F %T')] All done in $(( ($(date +%s) - start) / 60 )) min."

@@ -141,8 +141,9 @@ evaluation, then the dysarthric fine-tune once per held-out speaker.
 
 ```bash
 python scripts/finetune_ssl.py --backbone hubert-large --seed 0
+python scripts/finetune_ssl.py --backbone hubert-large --seed 0 --resume  # after a crash: continue that seed
 python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke   # 1 epoch per stage, under runs/smoke/
-bash scripts/train_ssl_all.sh                   # every backbone x seeds 0-2; skips finished seeds
+bash scripts/train_ssl_all.sh                   # every backbone x seeds 0-2; skips finished seeds, resumes the rest
 BACKBONES="hubert-base" SEEDS="0" DEVICE=cuda:0 bash scripts/train_ssl_all.sh
 ```
 
@@ -159,9 +160,24 @@ Outputs, per backbone `<b>` and seed `<k>`:
 
 Every checkpoint is a full state dict, so one seed writes 9 of them: about 0.9 GB for
 `distilhubert`, 3.4 GB for `hubert-base` and 11.4 GB for `hubert-large` (about 47 GB for
-all three backbones x 3 seeds). A seed checks for that much free space before it writes anything.
+all three backbones x 3 seeds). A seed checks for that much free space before it writes anything
+(a resumed one, only for the checkpoints it has yet to write).
 
 A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it again.
+
+A crashed seed resumes with `--resume` (the all-script always passes it). The units are
+the control stage and each fold: a unit is done once its checkpoint (`controls.pt`,
+`fold<i>_<speaker>.pt`) is saved, so a crash costs at most the unit it hit. Resuming keeps
+the finished units, rescoring them to rewrite both runs, and trains the rest; every unit
+seeds itself, so on the same device and `--num-workers` the result equals an uninterrupted
+run. Checkpoints are written to a `.tmp` file and then renamed, so a half-written one is
+never taken as done. Refused:
+- an unfinished seed without `--resume` (pass it, or delete the seed's directory to start over);
+- a kept checkpoint whose backbone, seed, classes, masking, stages or training speakers differ
+  from this run's (device, attention and workers may differ), or that cannot be read: the
+  error names the file, which is left in place;
+- fold checkpoints without the `controls.pt` they started from.
+
 Runs left under `runs/hubert-large/` by the removed `scripts/train.py` (an `eval/run.json`
 with no `controls.pt`) must be moved or deleted first; both scripts refuse to start over one.
 

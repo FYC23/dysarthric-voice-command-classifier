@@ -62,6 +62,17 @@ def test_smoke_run_is_one_epoch_per_stage_under_runs_smoke(tmp_path):
     assert job.dysarthric_stage == replace(DYSARTHRIC_FINETUNE, epochs=1)
 
 
+def test_resume_is_off_unless_asked(tmp_path):
+    assert not job_for(["--backbone", "hubert-base", "--seed", "0"], tmp_path).resume
+    job = job_for(["--backbone", "hubert-base", "--seed", "0", "--resume"], tmp_path)
+    assert job.resume
+
+
+def test_a_smoke_run_can_resume(tmp_path):
+    job = job_for(["--backbone", "distilhubert", "--seed", "0", "--smoke", "--resume"], tmp_path)
+    assert job.resume and job.out_dir == tmp_path / "runs" / "smoke" / "distilhubert" / "seed0"
+
+
 def test_a_real_run_needs_every_control_speaker():
     script = load_script()
     samples = pd.DataFrame({"speaker_id": [*DYSARTHRIC_SPEAKERS, *CONTROL_SPEAKERS]})
@@ -120,6 +131,12 @@ def test_all_script_passes_device_and_workers(tmp_path):
     out = run_all_script(tmp_path, BACKBONES="distilhubert", SEEDS="1", DEVICE="cuda:1",
                          NUM_WORKERS="4")
     assert "--backbone distilhubert --seed 1 --device cuda:1 --num-workers 4" in out
+
+
+def test_all_script_always_resumes(tmp_path):
+    out = run_all_script(tmp_path, SEEDS="0")
+    runs = [line for line in out.splitlines() if "finetune_ssl.py" in line]
+    assert len(runs) == 3 and all(line.split()[-1] == "--resume" for line in runs)
 
 
 def test_all_script_stops_on_a_run_left_by_the_removed_train_script(tmp_path):

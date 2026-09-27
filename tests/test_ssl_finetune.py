@@ -175,8 +175,9 @@ def test_each_fold_frees_the_previous_model_before_loading(small_torgo, tmp_path
     assert alive_at_load == [0] * 8  # peak memory: one model
 
 
-def test_a_finished_seed_is_never_overwritten(small_torgo, tmp_path, monkeypatch):
-    job = make_job(tmp_path)
+@pytest.mark.parametrize("resume", [False, True])
+def test_a_finished_seed_is_never_overwritten(small_torgo, tmp_path, monkeypatch, resume):
+    job = make_job(tmp_path, resume=resume)
     seed_with(job, f"{EVAL_DIR}/run.json", CONTROLS_CHECKPOINT)
     refuse_to_load_a_model(monkeypatch)
     with pytest.raises(FileExistsError, match="finished"):
@@ -194,13 +195,15 @@ def test_a_run_left_by_the_removed_train_script_is_refused(small_torgo, tmp_path
     assert sorted(p.name for p in job.out_dir.rglob("*")) == [EVAL_DIR, "run.json"]
 
 
-def test_a_crashed_seed_runs_again(small_torgo, tmp_path):
+def test_a_crashed_seed_needs_resume_to_run_again(small_torgo, tmp_path):
     job = make_job(tmp_path)
     run_ssl_finetuning(job, small_torgo)
     shutil.rmtree(job.out_dir / EVAL_DIR)  # as if it crashed during the folds
     stale = job.controls_out_dir / EVAL_DIR / "run.json"
     stale.write_text(stale.read_text().replace('"tiny-hubert-controls"', '"stale"'))
-    loso, controls = run_ssl_finetuning(job, small_torgo)
+    with pytest.raises(FileExistsError, match="--resume"):
+        run_ssl_finetuning(job, small_torgo)
+    loso, controls = run_ssl_finetuning(make_job(tmp_path, resume=True), small_torgo)
     assert loso.model == "tiny-hubert" and controls.model == "tiny-hubert-controls"
 
 

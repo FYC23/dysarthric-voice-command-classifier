@@ -4,11 +4,14 @@ Train one pretrained speech backbone on TORGO for one seed (step 2): the
 control stage, the controls-only run, then the dysarthric LOSO folds.
 
     python scripts/finetune_ssl.py --backbone hubert-large --seed 0
+    python scripts/finetune_ssl.py --backbone hubert-large --seed 0 --resume
     python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke
 
 Writes runs/<backbone>/seed<k>/{controls.pt, fold<i>_<speaker>.pt, eval/},
 runs/<backbone>-controls/seed<k>/eval/ and a cost.json beside each.
 Backbones download from Hugging Face; set HF_ENDPOINT to use a mirror.
+After a crash, --resume keeps controls.pt and every finished fold and trains
+only the rest; without it, an unfinished seed is refused.
 """
 
 import argparse
@@ -40,6 +43,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--smoke", action="store_true",
                         help="1 epoch per stage, written under runs/smoke/ (a pipeline check)")
+    parser.add_argument("--resume", action="store_true",
+                        help="continue an unfinished seed: keep controls.pt and finished folds")
     return parser.parse_args(argv)
 
 
@@ -47,7 +52,7 @@ def make_job(args: argparse.Namespace, runs_dir: Path, noise_dir: Path, cache_di
              device: torch.device) -> SslJob:
     job = SslJob(backbone=BACKBONES[args.backbone], seed=args.seed, runs_dir=Path(runs_dir),
                  noise_dir=Path(noise_dir), device=device, cache_dir=Path(cache_dir),
-                 num_workers=args.num_workers)
+                 num_workers=args.num_workers, resume=args.resume)
     if not args.smoke:
         return job
     return replace(job, runs_dir=Path(runs_dir) / SMOKE_DIR,
