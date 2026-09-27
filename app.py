@@ -34,6 +34,8 @@ LOCAL_CHECKPOINT = APP_DIR / "runs" / "bcresnet-8" / "seed0" / "deploy.pt"
 ASR_NAME = "parakeet-tdt-0.6b-v3"
 GITHUB_URL = "https://github.com/FYC23/dysarthric-voice-command-classifier"
 TOP_K = 5
+# 10 s of 48 kHz stereo float32 is under 4 MB; this stops a huge upload being decoded
+MAX_UPLOAD_SIZE = "20mb"
 
 EMPTY_NOTICE = "Record or upload one word."
 NO_SPEECH_NOTICE = "No speech detected: the models heard the loudest 2 seconds of the clip."
@@ -81,14 +83,16 @@ def asr_markdown(answer: AsrAnswer, cost: ModelCost, device_label: str) -> str:
     if answer.error:
         return f"**Not available.** {answer.error}"
     line = caption(cost, answer.latency_ms, device_label)
-    if not answer.transcript:
+    if answer.command is None:  # empty, or nothing a command can be read from (e.g. ".")
         return f"Heard: *(nothing recognised)*\n\n{line}"
     return f"Heard: “{answer.transcript}”\n\n### → {answer.command}\n\n{line}"
 
 
 def render(result: DemoResult, results: DemoResults, device_label: str) -> tuple:
     """(heard audio, notice, BC-ResNet label, BC-ResNet caption, Parakeet panel)."""
-    return ((Config.SAMPLE_RATE, result.heard),
+    # int16, so Gradio plays the window at its real level instead of peak-normalising it
+    heard = (np.clip(result.heard, -1.0, 1.0) * 32767).astype(np.int16)
+    return ((Config.SAMPLE_RATE, heard),
             "" if result.speech_found else NO_SPEECH_NOTICE,
             result.probabilities,
             caption(results.kws_cost, result.kws_latency_ms, device_label),
@@ -114,7 +118,8 @@ def create_app(handle: Callable, results: DemoResults) -> gr.Blocks:
     with gr.Blocks(title="Dysarthric voice commands") as demo:
         gr.Markdown(header_markdown(results))
         audio = gr.Audio(sources=["microphone", "upload"], type="numpy",
-                         label="Say one command, or upload a clip")
+                         label="Say one command, or upload a clip",
+                         editable=False)  # a trim would not be re-scored
         heard = gr.Audio(label="What the models heard (the 2 s window)", interactive=False)
         notice = gr.Markdown()
         with gr.Row():
@@ -130,6 +135,7 @@ def create_app(handle: Callable, results: DemoResults) -> gr.Blocks:
         outputs = [heard, notice, label, kws_md, asr_md]
         audio.stop_recording(handle, audio, outputs, api_name="recognize_recording")
         audio.upload(handle, audio, outputs, api_name="recognize_upload")
+        audio.clear(handle, audio, outputs, api_name=False)  # clears the panels
     return demo
 
 
@@ -167,7 +173,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     asr, asr_error = (None, None) if args.no_asr else load_asr(device)
     results = load_results()
     handle = make_handler(kws, asr, asr_error, results, device.type.upper())
-    create_app(handle, results).launch(server_port=args.port, share=args.share)
+    create_app(handle, results).launch(server_port=args.port, share=args.share,
+                                         max_file_size=MAX_UPLOAD_SIZE)
 
 
 if __name__ == "__main__":

@@ -112,3 +112,50 @@ def test_create_app_builds_blocks():
 
 def test_cpu_is_the_default_device():
     assert app.parse_args([]).device == "cpu"
+
+
+def _events(demo):
+    return {event for fn in demo.fns.values() for _, event in fn.targets}
+
+
+def test_clearing_the_input_clears_the_panels():
+    assert "clear" in _events(app.create_app(handler(), RESULTS))
+
+
+def test_the_input_cannot_be_trimmed_without_rescoring():
+    demo = app.create_app(handler(), RESULTS)
+    inputs = [b for b in demo.blocks.values()
+              if isinstance(b, gr.Audio) and b.sources == ["microphone", "upload"]]
+    assert len(inputs) == 1 and inputs[0].editable is False
+
+
+def test_transcript_that_maps_to_no_command_says_nothing_recognised():
+    md = app.asr_markdown(AsrAnswer(transcript=".", command=None, latency_ms=5.0),
+                          RESULTS.asr_cost, "CPU")
+    assert "nothing recognised" in md and "None" not in md and "→" not in md
+
+
+def test_heard_window_plays_at_its_real_level():
+    heard, *_ = handler()((Config.SAMPLE_RATE, word_clip(1.5)))
+    window = heard[1]
+    assert window.dtype == np.int16
+    assert 0 < np.abs(window).max() < 32767 // 2  # a quiet clip stays quiet, not peak-normalised
+
+
+def test_uploads_are_capped_in_size(monkeypatch):
+    launched = {}
+
+    class StubDemo:
+        def launch(self, **kwargs):
+            launched.update(kwargs)
+
+    class LoadedKws(StubKws):
+        def warm_up(self):
+            pass
+
+    monkeypatch.setattr(app.KeywordSpotter, "from_checkpoint",
+                        classmethod(lambda cls, path, device: LoadedKws()))
+    monkeypatch.setattr(app, "load_results", lambda: RESULTS)
+    monkeypatch.setattr(app, "create_app", lambda handle, results: StubDemo())
+    app.main(["--no-asr", "--checkpoint", "x.pt"])
+    assert launched["max_file_size"] == app.MAX_UPLOAD_SIZE
