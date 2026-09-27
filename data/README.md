@@ -9,7 +9,7 @@ data/
 │   ├── TORGO/
 │   └── speech_commands_v2/
 ├── cache/                    # Derived files. Safe to delete; scripts rebuild them.
-│   └── pretrained/           # Downloaded pretrained weights (HuBERT)
+│   └── pretrained/           # Downloaded pretrained weights (SSL backbones, ASR baselines)
 └── labels/                   # Hand labels. Committed: they can't be regenerated.
     └── torgo_manual_segment_labels.json  # Hand-labelled word / partial / non-speech
                                           # segments in the 36 longest TORGO clips

@@ -69,7 +69,9 @@ def test_the_last_epoch_is_kept(tmp_path, monkeypatch):
         epochs_seen.append(len(epochs_seen) + 1)
         with torch.no_grad():
             model.head.classifier[-1].bias.fill_(float(epochs_seen[-1]))
-        return 1.0 / epochs_seen[-1], 0.5
+        # every epoch is worse than the last (loss up, accuracy down), so a
+        # best-accuracy or lowest-loss selector would keep epoch 1
+        return float(epochs_seen[-1]), 1.0 / epochs_seen[-1]
 
     monkeypatch.setattr(ssl_loop, "train_epoch", fake_epoch)
     three = AdamWStage(epochs=3, head_lr=1e-3, encoder_lr=None, unfreeze=False, batch_size=2)

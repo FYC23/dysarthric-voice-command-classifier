@@ -146,6 +146,10 @@ bash scripts/train_ssl_all.sh                   # every backbone x seeds 0-2; sk
 BACKBONES="hubert-base" SEEDS="0" DEVICE=cuda:0 bash scripts/train_ssl_all.sh
 ```
 
+On each GPU server, first run a CUDA smoke run
+(`python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke --device cuda`),
+then start the all-script inside `tmux` or with `nohup`: `hubert-large` takes hours per seed.
+
 Outputs, per backbone `<b>` and seed `<k>`:
 - `runs/<b>/seed<k>/controls.pt`: after the control stage; every fold starts here
 - `runs/<b>/seed<k>/fold<i>_<speaker>.pt`: never trained on `<speaker>`

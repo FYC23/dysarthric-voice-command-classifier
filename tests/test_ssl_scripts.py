@@ -4,6 +4,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -24,10 +25,10 @@ def load_script():
     return module
 
 
-def job_for(argv, tmp_path):
+def job_for(argv, tmp_path, device=torch.device("cpu")):
     script = load_script()
     return script.make_job(script.parse_args(argv), tmp_path / "runs", tmp_path / "noise",
-                           tmp_path / "cache", torch.device("cpu"))
+                           tmp_path / "cache", device)
 
 
 def test_seed_is_required():
@@ -41,21 +42,24 @@ def test_unknown_backbone_is_rejected():
 
 
 def test_real_run_uses_the_recipe_and_the_runs_directory(tmp_path):
-    job = job_for(["--backbone", "hubert-large", "--seed", "2"], tmp_path)
+    job = job_for(["--backbone", "hubert-large", "--seed", "2", "--num-workers", "5"], tmp_path,
+                  device=torch.device("cuda:1"))
     assert job.backbone.hf_id == "facebook/hubert-large-ll60k"
     assert job.out_dir == tmp_path / "runs" / "hubert-large" / "seed2"
     assert job.control_stages == (CONTROL_HEAD_WARMUP, CONTROL_FINETUNE)
     assert job.dysarthric_stage == DYSARTHRIC_FINETUNE
     assert job.cache_dir == tmp_path / "cache"
+    assert job.num_workers == 5 and job.device == torch.device("cuda:1")
 
 
 def test_smoke_run_is_one_epoch_per_stage_under_runs_smoke(tmp_path):
     job = job_for(["--backbone", "distilhubert", "--seed", "0", "--smoke"], tmp_path)
     assert job.out_dir == tmp_path / "runs" / "smoke" / "distilhubert" / "seed0"
     assert job.controls_out_dir == tmp_path / "runs" / "smoke" / "distilhubert-controls" / "seed0"
-    assert [s.epochs for s in job.control_stages] == [1, 1]
-    assert job.dysarthric_stage.epochs == 1
-    assert job.dysarthric_stage.head_lr == DYSARTHRIC_FINETUNE.head_lr
+    # the recipe in every other respect
+    assert job.control_stages == (replace(CONTROL_HEAD_WARMUP, epochs=1),
+                                  replace(CONTROL_FINETUNE, epochs=1))
+    assert job.dysarthric_stage == replace(DYSARTHRIC_FINETUNE, epochs=1)
 
 
 def test_a_real_run_needs_every_control_speaker():

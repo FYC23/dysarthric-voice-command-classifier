@@ -1,7 +1,7 @@
 """
 Centralized configuration for the dysarthric voice command classifier.
 
-All hyperparameters and paths are defined here for easy experimentation.
+Paths, target commands and the audio window; training recipes live next to their code.
 """
 
 from pathlib import Path

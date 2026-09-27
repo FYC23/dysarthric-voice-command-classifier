@@ -3,7 +3,7 @@
 import gc
 import shutil
 import weakref
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -83,6 +83,7 @@ def test_checkpoints_record_what_produced_them(small_torgo, tmp_path):
     assert fold["masking"] == dict(MASKING_OVERRIDES)
     used = build_model(job).backbone.config._attn_implementation
     assert controls["attn_implementation"] == fold["attn_implementation"] == used
+    assert used is not None
     assert fold["num_workers"] == controls["num_workers"] == 0
     assert fold["device"] == controls["device"] == "cpu"
 

@@ -154,6 +154,7 @@ def test_attention_is_eager_on_mps_only():
     # MPS scaled_dot_product_attention refuses dropout on inputs that need no
     # grad (frozen layers); everywhere else the library default (SDPA) stays.
     assert attention_for(torch.device("mps")) == "eager"
+    assert attention_for(torch.device("mps:0")) == "eager"
     for name in ("cpu", "cuda", "cuda:1"):
         assert attention_for(torch.device(name)) is None, name
 

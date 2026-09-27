@@ -155,7 +155,6 @@ def test_set_trainable_freezes_the_cnn_front_ends_grad_flag(tmp_path):
     assert all(not h.requires_grad for h in out.hidden_states)
 
 
-
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
 @pytest.mark.parametrize("top_n", [0, 1])
 def test_partly_frozen_classifier_trains_on_mps(tmp_path, top_n):
