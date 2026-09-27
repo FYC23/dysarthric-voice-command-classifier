@@ -1,198 +1,172 @@
 # Dysarthric Voice Command Classifier
 
-A deep learning system for recognizing voice commands from speakers with dysarthria, trained and evaluated on the TORGO dataset: pretrained self-supervised speech models (HuBERT-large, HuBERT-base, DistilHuBERT) as the accuracy reference, and a small BC-ResNet keyword spotter for on-device use.
+A **323k-parameter keyword spotter** (BC-ResNet-8) recognizes 20 voice commands
+from **dysarthric speakers it never trained on** with **88% accuracy**. Zero-shot
+Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
+**about 1,900× more parameters**. The smallest width, BC-ResNet-1, has 9.5k
+parameters and still reaches 84%.
 
-## Overview
+![Accuracy vs. model size](outputs/step3-bcresnet/accuracy_vs_params.png)
 
-Dysarthria is a motor speech disorder that affects the muscles used for speaking, making speech difficult to understand. This project provides an accessible voice command interface specifically designed for individuals with dysarthric speech patterns.
+## Why
 
-**Key Features:**
-- 20 voice commands (10 digits + 10 directional/action commands)
-- Pretrained speech backbones (HuBERT-large, HuBERT-base, DistilHuBERT) with a learned weighted sum of layers and attention pooling
-- Staged training: TORGO control speakers first, then dysarthric speakers, evaluated leave-one-speaker-out
-- Comprehensive audio augmentation pipeline
+Dysarthria is a motor speech disorder, common after stroke and in cerebral palsy,
+ALS and Parkinson's disease, that makes speech slurred and hard to understand. The
+people who would gain most from voice control are the ones general-purpose speech
+recognition serves worst: on this data, zero-shot ASR gets about 90% of commands right
+for mildly dysarthric speakers but only about 55% for severe ones. This project asks whether
+a tiny model, small enough for a phone or microcontroller, can do better on a fixed
+set of commands.
 
-## Architecture
+## Results
+
+TORGO, 8 dysarthric speakers, each held out in turn (leave-one-speaker-out). Accuracy
+is computed per speaker and then averaged over speakers, on the array microphone,
+with a 95% bootstrap interval over speakers. BC-ResNet numbers are seed 0; more seeds
+are training.
+
+| Model | Params | MACs / 2 s | Accuracy | 95% CI | Severe (4 speakers) | Mild (3 speakers) |
+|---|---|---|---|---|---|---|
+| Whisper large-v3 (zero-shot) | 1.54B | 1.3T | 66.3% | [53.6, 80.2] | 54.1% | 89.7% |
+| Parakeet-TDT-0.6B-v3 (zero-shot) | 627M | 16.7G | 70.6% | [59.0, 83.8] | 56.2% | 91.2% |
+| BC-ResNet-1 | 9.5k | 4.9M | 84.2% | [76.9, 91.8] | 80.3% | 91.7% |
+| BC-ResNet-2 | 27.8k | 14.6M | 87.1% | [82.3, 92.2] | 82.2% | 92.9% |
+| BC-ResNet-3 | 54.9k | 28.9M | 87.7% | [81.2, 94.2] | 84.3% | 91.9% |
+| **BC-ResNet-8** | **323k** | **171M** | **88.4%** | [81.9, 95.1] | 81.2% | 94.1% |
+
+- **Speaker by speaker**, BC-ResNet-8 beats Parakeet on 6 of 8 speakers and ties on the
+  other 2 (two mild speakers at 100%). Mean gain: **+17.8 points** [+8.8, +26.9]. It
+  beats Whisper on all 8 speakers (+22.1 points).
+- **The gain is largest where ASR fails:** on the four severe speakers, 81% against 56%.
+- **On the head-mounted microphone**, BC-ResNet-8 still leads at 92.4%, against 75.4% for
+  Whisper and 53.3% for Parakeet.
+- **On typical speech** (Speech Commands v2, 35 words + silence, 2 s window) the same
+  models score 95.1% (BC-ResNet-1) to 98.1% (BC-ResNet-8) before TORGO fine-tuning.
+
+The comparison is fair to the ASR models in two ways. They hear the same 2 s clip. Each
+transcript is mapped to the nearest of the 20 commands ("lenient" scoring), so near
+misses like "for" → "four" count as correct. Their strict scores (the transcript must be
+exactly the word) are lower: 50.3% and 53.9%.
+
+Full tables, per-speaker results and confusion matrices:
+[`outputs/step3-bcresnet/`](outputs/step3-bcresnet/) (head mic in its `head-mic/`
+subfolder); ASR-only report in [`outputs/step1-asr/`](outputs/step1-asr/).
+
+### Limitations
+
+- **Closed set.** The model always picks one of 20 words and has no "unknown" or
+  "silence" class, so it cannot reject speech that is not a command. ASR can transcribe
+  anything.
+- **Small test set.** TORGO has 8 dysarthric speakers with 8–34 test clips each (array
+  mic), so the intervals are wide.
+- **One seed so far.** Seed-to-seed variation is not yet measured.
+- **Cost is counted, not measured on a device.** MACs exclude the log-Mel front end,
+  and Whisper's count includes the padding its encoder needs to reach 30 s. No model
+  has been run on a phone or microcontroller yet.
+- **The ASR models are not fine-tuned.** They show what an off-the-shelf system gives a
+  dysarthric user, not how well a large model could do with adaptation.
+
+## Method
 
 ```mermaid
 flowchart LR
-    subgraph input [Input]
-        Audio[2 s waveform]
-    end
-    subgraph backbone [Pretrained backbone: HuBERT-large / HuBERT-base / DistilHuBERT]
-        FE[CNN Feature Extractor]
-        FP[Feature Projection]
-        Enc[Transformer Encoder, 24 / 12 / 2 layers]
-    end
-    subgraph head [Command head]
-        WS[Weighted sum of all layers]
-        AP[Attention Pooling]
-        MLP[2-Layer MLP Classifier]
-    end
-    subgraph output [Output]
-        Pred[Command Prediction]
-    end
-    Audio --> FE --> FP --> Enc --> WS --> AP --> MLP --> Pred
+    SC[Speech Commands v2<br/>35 words + silence] --> S1[Stage 1<br/>pretrain BC-ResNet]
+    S1 --> S2[Stage 2<br/>7 TORGO control speakers<br/>new 20-class head]
+    S2 --> F[Stage 3, 8 folds<br/>train on 7 dysarthric speakers]
+    F --> E[Score the held-out speaker<br/>= reported accuracy]
+    S2 --> D[Stage 3, final model<br/>train on all 8 = deploy.pt]
 ```
 
-The model uses:
-- A **pretrained self-supervised backbone**: HuBERT-large (315M parameters), HuBERT-base (95M) or DistilHuBERT (24M)
-- A **learned weighted sum** of every layer's output, so the head can use the middle layers, not only the last
-- **Attention pooling** to learn which audio frames matter most
-- A **2-layer MLP classifier** with GELU activation and dropout
+1. **Pretrain on typical speech.** BC-ResNet trains on Speech Commands v2 with the
+   BC-ResNet paper's recipe (200 epochs, SGD, warmup + cosine). 17 of the 20 commands
+   are Speech Commands words, with about 2,600 speakers, against about 10 dysarthric
+   recordings per command in TORGO.
+2. **Adapt to TORGO's recording setup** on its 7 control speakers: a new 20-class head
+   is trained alone for 5 epochs, then the whole network for 40.
+3. **Fine-tune on dysarthric speech, leave-one-speaker-out.** For each of the 8
+   dysarthric speakers, start from stage 2 and train 30 epochs on the other 7. The
+   held-out speaker is scored once: first attempt of each word, no augmentation.
+   The 8 folds only measure accuracy. The model to use (`deploy.pt`) is trained the
+   same way on all 8 speakers; it has no speaker left to be tested on, so the fold
+   average is its accuracy estimate.
+4. **Augment to match deployment.** Speed perturbation (×0.9–1.1, the best of the
+   perturbations Geng et al. compared on disordered speech), a random position in the
+   2 s window (the word is never cut), background noise at 5–20 dB SNR, ±6 dB gain,
+   and SpecAugment on the log-Mel features.
+5. **Fix everything in advance.** All hyperparameters are set before any held-out
+   result is seen (`src/training/bcresnet_recipe.py`), and stages 2–3 keep their last
+   epoch. There is no dysarthric development set, so nothing is selected on test data.
 
-## Development Journey
+### How the evaluation was fixed
 
-This project evolved through iterative improvements:
+An earlier version of this project fine-tuned HuBERT-large and reported 87% accuracy
+leave-one-speaker-out. A review of that pipeline found two leaks: every fold started
+from a model that had already trained on the held-out speaker, and each fold picked
+its best epoch on that speaker's test clips. The number did not measure generalization
+to new speakers, so it was withdrawn and its outputs deleted.
 
-**Initial Attempt (~20% accuracy)**
-- HuBERT-large with linear classifier
-- Mean pooling over time dimension
-- No data augmentation
-- All 46 classes (digits + commands + radio alphabet)
+The evaluation was rebuilt as a shared harness (`src/eval/`) that every model now goes
+through:
+- Every run records which speakers each fold trained on, and the harness refuses to
+  load a run in which any fold trained on its own held-out speaker.
+- Hyperparameters are fixed in advance, and the last epoch is kept.
+- Accuracy is computed per speaker and then averaged, so speakers with more clips don't
+  dominate.
+- Confidence intervals are bootstrapped over speakers.
+- Models are compared speaker by speaker.
 
-**Key Improvements**
-1. Replaced mean pooling with **attention pooling** — learns which frames matter most
-2. Changed linear classifier to **2-layer MLP** with GELU activation and dropout
-3. Added comprehensive **data augmentation** pipeline (noise, pitch shift, time stretch, gain, SpecAugment)
-4. Implemented **curriculum learning** (control speakers → dysarthric speakers)
+The 88% above is the first trained-model result from that harness.
 
-**Scaling Strategy**
-- First validated approach with 10 digit classes (zero-nine)
-- Once successful, expanded to 20 classes (10 digits + 10 directional/action commands)
-- Architecture supports scaling to full 46 classes if needed
+## Supported commands
 
-## Project Structure
+| Category | Commands |
+|----------|----------|
+| **Digits** | zero, one, two, three, four, five, six, seven, eight, nine |
+| **Actions** | yes, no, up, down, left, right, forward, back, select, menu |
 
-```
-dysarthric-voice-cmds/
-├── src/
-│   ├── config.py              # Paths, target commands, audio window
-│   ├── audio.py               # Silence trimming and the fixed 2 s window
-│   ├── data/                  # TORGO / Speech Commands loading and augmentation
-│   ├── model/
-│   │   ├── backbones.py       # Pretrained speech backbones and how they load
-│   │   ├── architecture.py    # Weighted-sum + attention-pooling command classifier
-│   │   └── bcresnet.py        # BC-ResNet
-│   ├── training/              # Recipes and loops (SSL backbones, BC-ResNet), LOSO helpers
-│   ├── eval/                  # Evaluation harness
-│   └── baselines/asr/         # Whisper / Parakeet zero-shot baselines
-├── scripts/
-│   ├── finetune_ssl.py        # Pretrained speech models (step 2)
-│   ├── train_ssl_all.sh       # ...every backbone and seed
-│   ├── pretrain_bcresnet.py   # BC-ResNet stage 1
-│   └── finetune_bcresnet.py   # BC-ResNet stages 2-3
-├── data/                      # Gitignored except README: datasets and caches
-│   ├── raw/TORGO/             # TORGO as downloaded
-│   └── cache/pretrained/      # Cached pretrained weights
-├── runs/                      # Gitignored: training checkpoints and eval runs
-├── outputs/                   # Results tables and plots
-└── requirements.txt           # Python dependencies
-```
+## Dataset: TORGO
 
-## Installation
+The [TORGO database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html)
+holds speech from speakers with dysarthria (cerebral palsy or ALS) and matched controls.
 
-### 1. Clone the repository
+- **8 dysarthric speakers:** severe F01, M01, M02, M04; moderate-to-severe M05; mild
+  F03, F04, M03.
+- **7 control speakers:** FC01–FC03, MC01–MC04 (stage 2 training only).
+- **Two microphones:** an array microphone (`wav_arrayMic`, the headline results) and a
+  head-mounted one (`wav_headMic`, reported separately).
+
+## Reproducing
+
+### Setup
+
+Developed with Python 3.12.
 
 ```bash
-git clone <repository-url>
-cd dysarthric-voice-cmds
+git clone https://github.com/FYC23/dysarthric-voice-command-classifier.git
+cd dysarthric-voice-command-classifier
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt       # requirements-dev.txt adds pytest
+bash scripts/download_torgo.sh        # into data/raw/TORGO/, see data/README.md
+bash scripts/download_speech_commands.sh
 ```
 
-### 2. Install dependencies
+Run the tests with `python -m pytest tests`. TORGO augmentation needs the noise
+recordings in `data/raw/speech_commands_v2/train/_silence_/`, which the Speech Commands
+download provides.
+
+### Step 1: zero-shot ASR baselines
 
 ```bash
-pip install -r requirements.txt
+python scripts/run_asr_baseline.py --model whisper-large-v3      # transcribe + score (resumable)
+python scripts/run_asr_baseline.py --model parakeet-tdt-0.6b-v3
+python scripts/report_asr_baselines.py                           # outputs/step1-asr/
 ```
 
-For development (adds pytest), install `requirements-dev.txt` instead and run the tests with `python -m pytest tests`.
+### Step 2: BC-ResNet
 
-**Requirements:**
-- torch, torchaudio
-- transformers
-- librosa
-- scikit-learn
-- pandas, matplotlib, seaborn
-
-### 3. Download the TORGO dataset
-
-```bash
-bash scripts/download_torgo.sh
-```
-
-This fetches the four archives from the [TORGO Database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html) and extracts them into `data/raw/TORGO/`. See [data/README.md](data/README.md) for the layout.
-
-### 4. Pretrained speech models
-
-`scripts/finetune_ssl.py` downloads its backbone from Hugging Face on first use and caches it in `data/cache/pretrained/`:
-
-| Backbone | Checkpoint | Params | Layers |
-|---|---|---|---|
-| `hubert-large` | `facebook/hubert-large-ll60k` | 315M | 24 |
-| `hubert-base` | `facebook/hubert-base-ls960` | 95M | 12 |
-| `distilhubert` | `ntu-spml/distilhubert` | 24M | 2 |
-
-If the machine cannot reach huggingface.co, use a mirror: `export HF_ENDPOINT=https://hf-mirror.com`.
-
-## Pretrained speech models (step 2)
-
-One run per backbone and seed: the TORGO control stage, a controls-only
-evaluation, then the dysarthric fine-tune once per held-out speaker.
-
-```bash
-python scripts/finetune_ssl.py --backbone hubert-large --seed 0
-python scripts/finetune_ssl.py --backbone hubert-large --seed 0 --resume  # after a crash: continue that seed
-python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke   # 1 epoch per stage, under runs/smoke/
-bash scripts/train_ssl_all.sh                   # every backbone x seeds 0-2; skips finished seeds, resumes the rest
-BACKBONES="hubert-base" SEEDS="0" DEVICE=cuda:0 bash scripts/train_ssl_all.sh
-```
-
-On each GPU server, first run a CUDA smoke run
-(`python scripts/finetune_ssl.py --backbone distilhubert --seed 0 --smoke --device cuda`),
-then start the all-script inside `tmux` or with `nohup`: `hubert-large` takes hours per seed.
-
-Outputs, per backbone `<b>` and seed `<k>`:
-- `runs/<b>/seed<k>/controls.pt`: after the control stage; every fold starts here
-- `runs/<b>/seed<k>/fold<i>_<speaker>.pt`: never trained on `<speaker>`
-- `runs/<b>/seed<k>/eval/`: the LOSO predictions for the eval harness (`src.eval.io.load_run`)
-- `runs/<b>-controls/seed<k>/eval/`: the control-stage model scored on all 8 dysarthric speakers
-- `runs/<b>/cost.json`, `runs/<b>-controls/cost.json`: parameters and MACs for one 2 s window
-
-Every checkpoint is a full state dict, so one seed writes 9 of them: about 0.9 GB for
-`distilhubert`, 3.4 GB for `hubert-base` and 11.4 GB for `hubert-large` (about 47 GB for
-all three backbones x 3 seeds). A seed checks for that much free space before it writes anything
-(a resumed one, only for the checkpoints it has yet to write).
-
-A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it again.
-
-A crashed seed resumes with `--resume` (the all-script always passes it). The units are
-the control stage and each fold: a unit is done once its checkpoint (`controls.pt`,
-`fold<i>_<speaker>.pt`) is saved, so a crash costs at most the unit it hit. Resuming keeps
-the finished units, rescoring them to rewrite both runs, and trains the rest. Every unit
-seeds itself, so with the same `--num-workers` a resumed seed follows the same random
-streams as an uninterrupted one: bitwise the same on the CPU, while GPU kernels may still
-differ slightly (as they do between two uninterrupted runs). Checkpoints are written to a
-`.tmp` file and then renamed, so a half-written one is never taken as done. Refused:
-- an unfinished seed without `--resume` (pass it, or delete the seed's directory to start over);
-- a kept checkpoint whose backbone, `hf_id`, seed, classes, masking, stages or training
-  speakers differ from this run's (device, attention and workers may differ), or that cannot
-  be read: the error names the file, which is left in place;
-- a fold checkpoint not trained from the `controls.pt` beside it (each seed's `controls.pt`
-  gets a random `run_id` that its folds copy), and fold checkpoints with no `controls.pt`.
-
-Runs left under `runs/hubert-large/` by the removed `scripts/train.py` (an `eval/run.json`
-with no `controls.pt`) must be moved or deleted first; both scripts refuse to start over one.
-
-## BC-ResNet (step 3)
-
-Three stages per width τ ∈ {1, 2, 3, 8} and seed:
-
-1. **Speech Commands pretraining**: 35 words + silence, 2 s window, the BC-ResNet
-   paper's recipe (200 epochs). Needs `bash scripts/download_speech_commands.sh`.
-   The first run caches the extracted words in `data/cache/speech_commands_words/`.
-2. **TORGO control speakers** with a new 20-class head.
-3. **TORGO dysarthric fine-tune**, once per held-out speaker (evaluated) and once on
-   all 8 speakers (the deploy model).
+Three stages per width τ ∈ {1, 2, 3, 8} and seed. The first run caches the extracted
+Speech Commands words in `data/cache/speech_commands_words/`.
 
 ```bash
 python scripts/pretrain_bcresnet.py --tau 8 --seed 0            # stage 1 (add --resume to continue)
@@ -200,151 +174,83 @@ python scripts/finetune_bcresnet.py --tau 8 --seed 0            # stages 2-3
 ```
 
 Or train every width and seed in one go (one GPU; safe to re-run, it skips finished
-steps and resumes pretraining; `DRY_RUN=1` prints the plan):
+steps and resumes pretraining; `DRY_RUN=1` prints the plan). It takes hours, so run it
+inside `tmux` or with `nohup`:
 
 ```bash
 bash scripts/train_bcresnet_all.sh                               # TAUS="1 2 3 8" SEEDS="0 1 2"
 TAUS="8" SEEDS="0" DEVICE=cuda:0 bash scripts/train_bcresnet_all.sh
 ```
 
-Outputs go to `runs/bcresnet-<τ>/seed<k>/`; the eval-harness run is in its `eval/`.
-Stage 2–3 hyperparameters are fixed in `src/training/bcresnet_recipe.py` and are
-never tuned on held-out results.
+Outputs go to `runs/bcresnet-<τ>/seed<k>/`: the stage checkpoints (`pretrain.pt`,
+`controls.pt`, `fold<i>_<speaker>.pt`, `deploy.pt`) and the eval-harness run in `eval/`.
+Parameter and MAC counts are in `runs/bcresnet-<τ>/cost.json`.
 
-## Supported Commands
-
-| Category | Commands |
-|----------|----------|
-| **Digits** | zero, one, two, three, four, five, six, seven, eight, nine |
-| **Actions** | yes, no, up, down, left, right, forward, back, select, menu |
-
-## Training Methodology (pretrained speech models)
-
-Every backbone uses the same recipe, fixed in `src/training/ssl_recipe.py` and never tuned on held-out results (there is no development set: the held-out speaker is the only unseen data).
-
-| Stage | Data | Epochs | Trainable | LR (head / encoder) |
-|---|---|---|---|---|
-| Control head warmup | 7 control speakers | 5 | head | 1e-4 / — |
-| Control fine-tune | 7 control speakers | 10 | head + top layers | 1e-5 / 1e-6 |
-| Dysarthric fine-tune (per fold) | the other 7 dysarthric speakers | 15 | head + top layers | 5e-5 / 5e-6 |
-
-- AdamW (weight decay 0.01), gradient clipping at 1.0, batch size 8, class-balanced cross-entropy, per-step cosine learning rate, last epoch kept.
-- Top layers: the top `min(4, layers)` transformer layers (4 of 24, 4 of 12, 2 of 2). The CNN front end, feature projection and positional convolution stay frozen.
-- Leave-one-speaker-out: each fold starts from the control-stage checkpoint and never sees its held-out speaker, who is scored once (both mics, first word attempt only, no augmentation).
-- Inside the backbone: one 200 ms time mask per 2 s clip (`mask_time_prob=0.05`, `mask_time_length=10`, `mask_time_min_masks=1`) and no layer drop, the same for every backbone.
-
-## Dataset: TORGO
-
-The [TORGO database](http://www.cs.toronto.edu/~complingweb/data/TORGO/torgo.html) contains acoustic and articulatory speech data from speakers with dysarthria.
-
-**Speakers:**
-- 8 dysarthric speakers (F01, F03, F04, M01-M05)
-- 7 control speakers (FC01-FC03, MC01-MC04)
-
-**Microphone Types:**
-- `wav_arrayMic`: Acoustic Magic array microphone (recommended, better quality)
-- `wav_headMic`: Head-mounted microphone
-
-## Data Augmentation
-
-Training only, generated on the fly; validation and test audio is never
-augmented.
-
-**TORGO (pretrained speech models and BC-ResNet)**, applied to the extracted word:
-- Speed perturbation, factor from {0.9, 0.95, 1.0, 1.05, 1.1}
-- Random position within the 2 s window (the word is never cut)
-- Background noise with probability 0.8 at 5–20 dB SNR
-- Gain ±6 dB
-
-BC-ResNet also gets SpecAugment on its log-Mel features; the pretrained speech
-models already mask time spans internally. **Speech Commands (BC-ResNet)**
-follows the BC-ResNet paper: ±100 ms shift and noise with probability 0.8,
-SpecAugment by width.
-
-Training needs the noise recordings in `data/raw/speech_commands_v2/train/_silence_/`
-(from `scripts/download_speech_commands.sh`, or copy just those 5 files).
-
-## Model Architecture Details
-
-`SSLCommandClassifier` (`src/model/architecture.py`) is a pretrained backbone followed by a `CommandHead`:
-
-1. **Weighted sum of layers**: every hidden state (25 / 13 / 3) is layer-normalised, then mixed with softmax weights learned in training (the SUPERB setup). It starts as a plain average.
-2. **Attention pooling** over time: a small network scores each frame; the output is the score-weighted average.
-3. **MLP classifier**: hidden → hidden/2 (GELU, dropout 0.1) → 20 commands.
-
-The whole head is trained in every stage.
-
-## Results
-
-- **Evaluation method**: Leave-one-speaker-out (LOSO) cross-validation over the 8 dysarthric speakers
-- **Note**: The previously reported ~87% came from an evaluation where each fold started from a model already trained on the held-out speaker and selected its best epoch on that speaker's test data, so it overstated generalization to unseen speakers. The corrected runs come from `scripts/finetune_ssl.py` (see above).
-
-The outputs of that old evaluation have been removed from `outputs/`; its numbers should not be quoted.
-
-### Step 1: off-the-shelf ASR (zero-shot)
-
-Whisper large-v3 and Parakeet-TDT-0.6B-v3 transcribe each clip (the same 2 s window the classifiers see); transcripts are scored **strict** (the transcript is exactly the word) and **lenient** (mapped to the nearest of the 20 commands). Speaker-averaged accuracy over the 8 dysarthric speakers, array mic, 95% bootstrap CI over speakers:
-
-| Model | Strict | Lenient | Control (lenient) |
-|---|---|---|---|
-| Whisper large-v3 | 50.3% [33.4, 69.2] | 66.3% [53.6, 80.2] | 95.7% |
-| Parakeet-TDT-0.6B-v3 | 53.9% [38.8, 70.6] | 70.6% [59.0, 83.8] | 92.0% |
-
-Mild dysarthria is handled well (80–91%); severe speakers fall to 34–56%. Parakeet v3 is multilingual and answered in another language on 17% of dysarthric clips.
+### Step 3: combined report
 
 ```bash
-python scripts/run_asr_baseline.py --model whisper-large-v3      # transcribe + score (resumable)
-python scripts/run_asr_baseline.py --model parakeet-tdt-0.6b-v3
-python scripts/report_asr_baselines.py                           # tables and figures
+python scripts/report_results.py                # every finished seed; --seeds 0 1 to pin them
 ```
 
-Report in `outputs/step1-asr/` (head mic in `outputs/step1-asr/head-mic/`): `results.md`/`.csv`, `per_speaker.csv`, `accuracy_vs_macs.png` and one `confusion_<run>.png` per run.
+Writes the tables, speaker-by-speaker comparisons and figures to
+`outputs/step3-bcresnet/`.
 
-## API Reference
+### Pretrained speech models
 
-### SSLCommandClassifier
+A HuBERT / DistilHuBERT classifier with the same TORGO stages is implemented as an
+accuracy reference but not yet trained. See [docs/ssl-backbones.md](docs/ssl-backbones.md).
 
-```python
-from src.model.architecture import SSLCommandClassifier, set_trainable
-from src.model.backbones import BACKBONES, load_backbone
+## Project structure
 
-model = SSLCommandClassifier(load_backbone(BACKBONES["hubert-base"]), num_labels=20)
-outputs = model(input_values, labels=None, class_weights=None)  # {'logits', 'loss' if labels given}
-set_trainable(model, top_n=4)  # the head and the top 4 transformer layers; everything else frozen
 ```
-
-### TORGOCommandDataset
-
-```python
-from src.data.dataset import TORGOCommandDataset
-
-dataset = TORGOCommandDataset(
-    df: pd.DataFrame,          # DataFrame with file_path, label_id columns
-    feature_extractor,         # Wav2Vec2FeatureExtractor
-    config,                    # Config object
-    max_length: int = 48000,   # 3 seconds at 16kHz
-    target_sr: int = 16000,
-    augment: bool = False      # Enable augmentation for training
-)
+dysarthric-voice-command-classifier/
+├── src/
+│   ├── config.py              # Paths, target commands, audio window
+│   ├── audio.py               # Silence trimming and the fixed 2 s window
+│   ├── data/                  # TORGO / Speech Commands loading and augmentation
+│   ├── model/
+│   │   ├── bcresnet.py        # BC-ResNet
+│   │   ├── frontend.py        # log-Mel features and SpecAugment
+│   │   ├── backbones.py       # Pretrained speech backbones (SSL reference)
+│   │   └── architecture.py    # Weighted-sum + attention-pooling head (SSL reference)
+│   ├── training/              # Recipes and loops, leave-one-speaker-out helpers
+│   ├── eval/                  # Evaluation harness, reports and plots
+│   └── baselines/asr/         # Whisper / Parakeet zero-shot baselines
+├── scripts/                   # Download, train, baseline and report entry points
+├── docs/                      # SSL reference model, literature review
+├── data/                      # Gitignored except README and labels: datasets and caches
+├── runs/                      # Gitignored: checkpoints and eval runs
+├── outputs/                   # Results tables and figures
+└── tests/
 ```
 
 ## Acknowledgments
 
-### TORGO Dataset
+### Data
 
 > Rudzicz, F., Namasivayam, A.K., Wolff, T. (2012) The TORGO database of acoustic and articulatory speech from speakers with dysarthria. *Language Resources and Evaluation*, 46(4), pages 523-541.
 
-### HuBERT
+> Warden, P. (2018) Speech Commands: A Dataset for Limited-Vocabulary Speech Recognition. [arXiv:1804.03209](https://arxiv.org/abs/1804.03209)
+
+### Models
+
+> Kim, B., Chang, S., Lee, J., Sung, D. (2021) Broadcasted Residual Learning for Efficient Keyword Spotting. Interspeech 2021. [arXiv:2106.04140](https://arxiv.org/abs/2106.04140)
+
+> Radford, A., Kim, J.W., Xu, T., Brockman, G., McLeavey, C., Sutskever, I. (2023) Robust Speech Recognition via Large-Scale Weak Supervision. ICML 2023. [arXiv:2212.04356](https://arxiv.org/abs/2212.04356)
+
+> Sekoyan, M., Koluguri, N.R., Tadevosyan, N., Zelasko, P., Bartley, T., Karpov, N., Balam, J., Ginsburg, B. (2025) Canary-1B-v2 & Parakeet-TDT-0.6B-v3: Efficient and High-Performance Models for Multilingual ASR and AST. [arXiv:2509.14128](https://arxiv.org/abs/2509.14128)
 
 > Hsu, W.N., Bolte, B., Tsai, Y.H.H., Lakhotia, K., Salakhutdinov, R., Mohamed, A. (2021) HuBERT: Self-Supervised Speech Representation Learning by Masked Prediction of Hidden Units. [arXiv:2106.07447](https://arxiv.org/abs/2106.07447)
 
-### DistilHuBERT
-
 > Chang, H.J., Yang, S.W., Lee, H.Y. (2022) DistilHuBERT: Speech Representation Learning by Layer-wise Distillation of Hidden-unit BERT. ICASSP 2022. [arXiv:2110.01900](https://arxiv.org/abs/2110.01900)
 
-### SUPERB (weighted sum of layers)
+### Methods
 
 > Yang, S.W. et al. (2021) SUPERB: Speech processing Universal PERformance Benchmark. Interspeech 2021. [arXiv:2105.01051](https://arxiv.org/abs/2105.01051)
+
+> Geng, M., Xie, X., Liu, S., Yu, J., Hu, S., Liu, X., Meng, H. (2020) Investigation of Data Augmentation Techniques for Disordered Speech Recognition. Interspeech 2020. [arXiv:2201.05562](https://arxiv.org/abs/2201.05562)
+
+> Park, D.S., Chan, W., Zhang, Y., Chiu, C.C., Zoph, B., Cubuk, E.D., Le, Q.V. (2019) SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition. Interspeech 2019. [arXiv:1904.08779](https://arxiv.org/abs/1904.08779)
 
 ## License
 
