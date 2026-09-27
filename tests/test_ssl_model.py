@@ -152,3 +152,15 @@ def test_set_trainable_freezes_the_cnn_front_ends_grad_flag(tmp_path):
     out = model.backbone(input_values=torch.randn(2, WINDOW), output_hidden_states=True)
     assert out.hidden_states[0].requires_grad is False
     assert all(not h.requires_grad for h in out.hidden_states)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple MPS")
+@pytest.mark.parametrize("top_n", [0, 1])
+def test_partly_frozen_classifier_trains_on_mps(tmp_path, top_n):
+    # Frozen layers see inputs that need no grad; with attention dropout on,
+    # that is exactly where MPS scaled_dot_product_attention refuses to run.
+    model = make_model(tmp_path, layers=3).to("mps").train()
+    set_trainable(model, top_n)
+    assert model.backbone.config.attention_dropout > 0
+    out = model(torch.randn(2, WINDOW, device="mps"), labels=torch.tensor([0, 5], device="mps"))
+    out["loss"].backward()

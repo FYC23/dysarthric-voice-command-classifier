@@ -55,3 +55,9 @@ def test_unfreeze_count_is_top_4_capped(layers, expected):
 def test_unfreeze_count_rejects_an_empty_encoder():
     with pytest.raises(ValueError):
         unfreeze_count(0)
+
+
+def test_load_backbone_uses_eager_attention(tmp_path):
+    # PyTorch's MPS scaled_dot_product_attention refuses dropout, and the
+    # checkpoints keep attention_dropout=0.1, so SDPA cannot train on a Mac.
+    assert load_backbone(tiny_spec(tmp_path)).config._attn_implementation == "eager"
