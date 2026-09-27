@@ -6,9 +6,11 @@ import pytest
 from src.eval.aggregate import summarize
 from src.eval.constants import HEAD_MIC
 from src.eval.cost import CostProfile
-from src.eval.plots import plot_accuracy_vs_macs, plot_confusion
+from src.eval.compare import compare
+from src.eval.plots import plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion
 from src.eval.report import (
-    human_count, per_speaker_table, results_table, to_markdown, write_report,
+    comparisons_markdown, comparisons_table, human_count, per_speaker_table, results_table,
+    to_markdown, write_report,
 )
 from src.eval.schema import Run
 from tests.eval.factories import ALL_DYSARTHRIC, dysarthric_preds, loso_folds, speaker_rows
@@ -145,3 +147,46 @@ def test_models_on_different_mics_cannot_share_a_table():
 def test_the_same_model_twice_in_a_table_is_rejected():
     with pytest.raises(ValueError, match="bcresnet1"):
         per_speaker_table([summary("bcresnet1", 6), summary("bcresnet1", 7)])
+
+
+def test_accuracy_vs_params_figure_is_written(tmp_path):
+    path = tmp_path / "acc_vs_params.png"
+    plot_accuracy_vs_cost([summary("bcresnet1", 6), summary("whisper", 3, zero_shot=True)],
+                          COSTS, path, axis="params", secondary={"bcresnet1": 0.97})
+    assert path.stat().st_size > 0
+
+
+def test_unknown_cost_axis_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="latency"):
+        plot_accuracy_vs_cost([summary("bcresnet1", 6)], COSTS, tmp_path / "x.png",
+                              axis="latency")
+
+
+def seed_runs(model, correct):
+    return [Run(model=model, seed=i, predictions=dysarthric_preds(correct),
+                fold_train_speakers=loso_folds()) for i in range(3)]
+
+
+def test_comparisons_table_has_one_row_per_pair():
+    base = seed_runs("whisper", {s: 5 for s in ALL_DYSARTHRIC})
+    cand = seed_runs("bcresnet1", {**{s: 7 for s in ALL_DYSARTHRIC}, "M03": 5})
+    table = comparisons_table([compare(base, cand)])
+    row = table.iloc[0]
+    assert (row["candidate"], row["baseline"]) == ("bcresnet1", "whisper")
+    assert (row["n_better"], row["n_worse"], row["n_tied"]) == (7, 0, 1)
+    assert row["mean_diff"] == pytest.approx(7 * 0.2 / 8)
+
+
+def test_comparisons_markdown_shows_signed_gains_in_points():
+    base = seed_runs("whisper", {s: 5 for s in ALL_DYSARTHRIC})
+    cand = seed_runs("bcresnet1", {s: 7 for s in ALL_DYSARTHRIC})
+    lines = comparisons_markdown(comparisons_table([compare(base, cand)])).strip().splitlines()
+    assert len(lines) == 3
+    assert "| bcresnet1 | whisper | 8 of 8 | 0 | 0 | +20.0 |" in lines[2]
+
+
+def test_a_model_with_zero_cost_does_not_break_the_log_axis_figure(tmp_path):
+    costs = {**COSTS, "free": CostProfile(params=0, macs=0, input_seconds=2.0)}
+    path = tmp_path / "x.png"
+    plot_accuracy_vs_cost([summary("bcresnet1", 6), summary("free", 3)], costs, path)
+    assert path.stat().st_size > 0

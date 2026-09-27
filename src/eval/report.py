@@ -10,6 +10,7 @@ from typing import Mapping, Optional, Sequence
 import pandas as pd
 
 from src.eval.aggregate import ModelSummary, check_summaries_comparable
+from src.eval.compare import PairedComparison
 from src.eval.cost import CostProfile
 from src.eval.plots import plot_accuracy_vs_macs
 
@@ -58,6 +59,41 @@ def per_speaker_table(summaries: Sequence[ModelSummary]) -> pd.DataFrame:
     return pd.DataFrame(rows).T
 
 
+def comparisons_table(comparisons: Sequence[PairedComparison]) -> pd.DataFrame:
+    """One row per (candidate, baseline) pair: speakers better/worse/tied, mean gain, CI."""
+    return pd.DataFrame([{
+        "candidate": c.candidate,
+        "baseline": c.baseline,
+        "mic": c.mic,
+        "n_better": c.n_better,
+        "n_worse": c.n_worse,
+        "n_tied": c.n_tied,
+        "mean_diff": c.mean_diff,
+        "ci_low": c.ci_low,
+        "ci_high": c.ci_high,
+    } for c in comparisons])
+
+
+def _signed_pts(x: float) -> str:
+    return f"{100 * x:+.1f}"
+
+
+def comparisons_markdown(table: pd.DataFrame) -> str:
+    """comparisons_table as markdown, gains in percentage points."""
+    header = ["Candidate", "Baseline", "Better on", "Worse on", "Tied",
+              "Mean gain (pts)", "95% CI (speakers)"]
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for r in table.to_dict("records"):
+        n_speakers = r["n_better"] + r["n_worse"] + r["n_tied"]
+        cells = [
+            r["candidate"], r["baseline"], f"{r['n_better']} of {n_speakers}",
+            str(r["n_worse"]), str(r["n_tied"]), _signed_pts(r["mean_diff"]),
+            f"[{_signed_pts(r['ci_low'])}, {_signed_pts(r['ci_high'])}]",
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
 def human_count(n: float) -> str:
     """9232 -> 9.2k, 321068 -> 321k, 89.1e6 -> 89.1M, 999950 -> 1.0M."""
     value, unit = float(n), 0
@@ -93,7 +129,8 @@ def to_markdown(table: pd.DataFrame) -> str:
 
 
 def write_report(summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
-                 out_dir: Path, secondary: Optional[Mapping[str, float]] = None) -> None:
+                 out_dir: Path, secondary: Optional[Mapping[str, float]] = None,
+                 labels: Optional[Mapping[str, str]] = None) -> None:
     """results.csv / .md, per_speaker.csv and the accuracy-vs-MACs figure."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -101,4 +138,5 @@ def write_report(summaries: Sequence[ModelSummary], costs: Mapping[str, CostProf
     table.to_csv(out_dir / "results.csv", index=False)
     (out_dir / "results.md").write_text(to_markdown(table))
     per_speaker_table(summaries).to_csv(out_dir / "per_speaker.csv")
-    plot_accuracy_vs_macs(summaries, costs, out_dir / "accuracy_vs_macs.png", secondary)
+    plot_accuracy_vs_macs(summaries, costs, out_dir / "accuracy_vs_macs.png", secondary,
+                          labels=labels)
