@@ -168,15 +168,17 @@ A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it aga
 A crashed seed resumes with `--resume` (the all-script always passes it). The units are
 the control stage and each fold: a unit is done once its checkpoint (`controls.pt`,
 `fold<i>_<speaker>.pt`) is saved, so a crash costs at most the unit it hit. Resuming keeps
-the finished units, rescoring them to rewrite both runs, and trains the rest; every unit
-seeds itself, so on the same device and `--num-workers` the result equals an uninterrupted
-run. Checkpoints are written to a `.tmp` file and then renamed, so a half-written one is
-never taken as done. Refused:
+the finished units, rescoring them to rewrite both runs, and trains the rest. Every unit
+seeds itself, so with the same `--num-workers` a resumed seed follows the same random
+streams as an uninterrupted one: bitwise the same on the CPU, while GPU kernels may still
+differ slightly (as they do between two uninterrupted runs). Checkpoints are written to a
+`.tmp` file and then renamed, so a half-written one is never taken as done. Refused:
 - an unfinished seed without `--resume` (pass it, or delete the seed's directory to start over);
-- a kept checkpoint whose backbone, seed, classes, masking, stages or training speakers differ
-  from this run's (device, attention and workers may differ), or that cannot be read: the
-  error names the file, which is left in place;
-- fold checkpoints without the `controls.pt` they started from.
+- a kept checkpoint whose backbone, `hf_id`, seed, classes, masking, stages or training
+  speakers differ from this run's (device, attention and workers may differ), or that cannot
+  be read: the error names the file, which is left in place;
+- a fold checkpoint not trained from the `controls.pt` beside it (each seed's `controls.pt`
+  gets a random `run_id` that its folds copy), and fold checkpoints with no `controls.pt`.
 
 Runs left under `runs/hubert-large/` by the removed `scripts/train.py` (an `eval/run.json`
 with no `controls.pt`) must be moved or deleted first; both scripts refuse to start over one.

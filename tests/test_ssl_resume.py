@@ -158,6 +158,59 @@ def test_a_truncated_checkpoint_is_named_and_kept(small_torgo, tmp_path, monkeyp
     assert path.stat().st_size == 1000
 
 
+def test_an_unreadable_controls_checkpoint_asks_to_start_the_seed_over(small_torgo, tmp_path,
+                                                                        monkeypatch):
+    job = finished_then_crashed(small_torgo, tmp_path)
+    path = job.out_dir / CONTROLS_CHECKPOINT
+    path.write_bytes(path.read_bytes()[:1000])
+    refuse_to_load_a_model(monkeypatch)
+    with pytest.raises(RuntimeError, match=CONTROLS_CHECKPOINT) as error:
+        run_ssl_finetuning(make_job(tmp_path, resume=True), small_torgo)
+    assert "delete the seed directory" in str(error.value).lower()
+    # deleting only controls.pt would get the seed refused for folds without their controls
+    assert "train that unit again" not in str(error.value).lower()
+    assert path.stat().st_size == 1000
+
+
+def test_every_checkpoint_of_a_seed_shares_one_run_id(small_torgo, tmp_path):
+    job = make_job(tmp_path)
+    run_ssl_finetuning(job, small_torgo)
+    ids = {torch.load(job.out_dir / name)["run_id"] for name in CHECKPOINTS}
+    assert len(ids) == 1
+    (run_id,) = ids
+    assert isinstance(run_id, str) and len(run_id) == 32
+
+
+def test_a_fold_from_another_control_stage_is_refused(small_torgo, tmp_path, monkeypatch):
+    # the same job trained elsewhere (e.g. on another server): same metadata, other lineage
+    elsewhere = make_job(tmp_path, runs_dir=tmp_path / "elsewhere")
+    run_ssl_finetuning(elsewhere, small_torgo)
+    job = finished_then_crashed(small_torgo, tmp_path)
+    shutil.copy(elsewhere.out_dir / FOLDS[3], job.out_dir / FOLDS[3])
+    refuse_to_load_a_model(monkeypatch)
+    with pytest.raises(ValueError, match=f"{FOLDS[3]}.*run_id"):
+        run_ssl_finetuning(make_job(tmp_path, resume=True), small_torgo)
+
+
+@pytest.mark.parametrize("name", [CONTROLS_CHECKPOINT, FOLDS[5]])
+def test_a_checkpoint_without_a_run_id_is_refused(small_torgo, tmp_path, monkeypatch, name):
+    job = finished_then_crashed(small_torgo, tmp_path)
+    path = job.out_dir / name
+    torch.save({k: v for k, v in torch.load(path).items() if k != "run_id"}, path)
+    refuse_to_load_a_model(monkeypatch)
+    with pytest.raises(ValueError, match=f"{name}.*run_id"):
+        run_ssl_finetuning(make_job(tmp_path, resume=True), small_torgo)
+
+
+def test_folds_trained_on_resume_keep_the_kept_controls_run_id(small_torgo, tmp_path):
+    job = finished_then_crashed(small_torgo, tmp_path)
+    run_id = torch.load(job.out_dir / CONTROLS_CHECKPOINT)["run_id"]
+    for name in FOLDS[4:]:
+        (job.out_dir / name).unlink()
+    run_ssl_finetuning(make_job(tmp_path, resume=True), small_torgo)
+    assert {torch.load(job.out_dir / name)["run_id"] for name in CHECKPOINTS} == {run_id}
+
+
 def test_a_checkpoint_from_another_device_and_workers_is_reused(small_torgo, tmp_path,
                                                                 monkeypatch, capsys):
     job = finished_then_crashed(small_torgo, tmp_path)

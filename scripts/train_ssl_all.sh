@@ -8,11 +8,11 @@
 # skipped; an unfinished one resumes (every run gets --resume): it keeps
 # controls.pt and each finished fold<i>_<speaker>.pt and trains only the rest,
 # so a crash costs at most the control stage or the one fold it hit. A kept
-# checkpoint must match the recipe, data and seed of this run, or the seed
-# stops with an error. Stops at the first failure. Refuses to start while any
-# seed directory holds an eval/run.json without controls.pt: that is a run
-# left by the removed scripts/train.py. Smoke runs (runs/smoke/) are never
-# looked at.
+# checkpoint must match the recipe, data and seed of this run, and a kept
+# fold must come from the kept controls.pt, or the seed stops with an error.
+# Stops at the first failure. Refuses to start while any seed directory holds
+# an eval/run.json without controls.pt: that is a run left by the removed
+# scripts/train.py. Smoke runs (runs/smoke/) are never looked at.
 #
 # Results: runs/<backbone>/seed<k>/ and runs/<backbone>-controls/seed<k>/.
 # Logs:    runs/<backbone>/seed<k>/finetune.log

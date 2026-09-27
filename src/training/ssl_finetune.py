@@ -9,14 +9,15 @@ fixed (src/training/ssl_recipe.py); last epoch kept.
 A seed resumes (SslJob.resume) at stage/fold granularity: the control stage
 and each fold are units, done once their checkpoint is saved. A crash inside
 a unit redoes only that unit. Every unit seeds itself (unit_seed), so a
-resumed seed trains the same weights as an uninterrupted one on the same
-device with the same num_workers.
+resumed seed follows the same random streams as an uninterrupted one with the
+same num_workers: bitwise the same weights on the CPU, while GPU kernels may
+still differ slightly (they do between two uninterrupted runs too).
 """
 
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import FrozenSet, Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 import torch
@@ -40,7 +41,8 @@ from src.training.loso import (
     set_seed, split_fold, with_label_ids,
 )
 from src.training.ssl_checkpoints import (
-    CONTROLS_CHECKPOINT, check_reusable, fold_checkpoint, read_checkpoint, save_checkpoint,
+    CONTROLS_CHECKPOINT, RUN_ID, check_lineage, check_reusable, fold_checkpoint, new_run_id,
+    read_checkpoint, save_checkpoint,
 )
 from src.training.ssl_loop import predict, run_stage
 from src.training.ssl_recipe import (
@@ -160,20 +162,22 @@ def _units(job: SslJob, controls: pd.DataFrame, dysarthric: pd.DataFrame) -> dic
     return {CONTROLS_CHECKPOINT: _identity(job, job.control_stages, control_speakers), **folds}
 
 
-def _reusable(job: SslJob, units: dict) -> FrozenSet[str]:
+def _reusable(job: SslJob, units: dict) -> Dict[str, dict]:
     """
-    The checkpoints a resumed seed keeps instead of training their unit again.
-    Each must match what this job would save; folds also need the controls.pt
-    they started from.
+    The checkpoints a resumed seed keeps instead of training their unit again,
+    with their metadata. Each must match what this job would save; folds also
+    need the controls.pt they started from.
     """
     if not job.resume:
-        return frozenset()
+        return {}
     saved = {name: check_reusable(job.out_dir / name, identity)
              for name, identity in units.items() if (job.out_dir / name).exists()}
     if saved and CONTROLS_CHECKPOINT not in saved:
         raise ValueError(f"{job.out_dir} holds {', '.join(saved)} but not the "
                          f"{CONTROLS_CHECKPOINT} they were trained from; restore it, or "
                          "delete the seed directory to start over")
+    if saved:
+        check_lineage(job.out_dir, saved)
     workers = sorted({str(meta.get("num_workers")) for meta in saved.values()}
                      - {str(job.num_workers)})
     if workers:
@@ -182,7 +186,7 @@ def _reusable(job: SslJob, units: dict) -> FrozenSet[str]:
               "augmentation than the original run would have", flush=True)
     if saved:
         print(f"Resuming {job.out_dir}: keeping {', '.join(saved)}", flush=True)
-    return frozenset(saved)
+    return saved
 
 
 def state_dict_bytes(model: torch.nn.Module) -> int:
@@ -206,10 +210,10 @@ def _check_disk_space(runs_dir: Path, needed: int) -> None:
 
 
 def _save(model: SSLCommandClassifier, path: Path, job: SslJob,
-          stages: Sequence[AdamWStage], train_speakers: Iterable[str]) -> None:
+          stages: Sequence[AdamWStage], train_speakers: Iterable[str], run_id: str) -> None:
     """Weights plus what produced them, written atomically."""
     save_checkpoint({"model_state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
-                     **_identity(job, stages, train_speakers),
+                     **_identity(job, stages, train_speakers), RUN_ID: run_id,
                      "attn_implementation": model.backbone.config._attn_implementation,
                      "device": str(job.device), "num_workers": job.num_workers}, path)
 
@@ -254,7 +258,7 @@ def _predict(model: SSLCommandClassifier, test_df: pd.DataFrame, job: SslJob,
 
 def _control_stage(job: SslJob, model: SSLCommandClassifier, controls: pd.DataFrame,
                    dysarthric: pd.DataFrame, feature_extractor, noise: NoiseBank,
-                   generator: torch.Generator, reuse: bool) -> None:
+                   generator: torch.Generator, reuse: bool, run_id: str) -> None:
     """Train on the controls and save controls.pt (or reuse it); save the controls-only run."""
     path = job.out_dir / CONTROLS_CHECKPOINT
     speakers = sorted(controls["speaker_id"].unique())
@@ -265,7 +269,7 @@ def _control_stage(job: SslJob, model: SSLCommandClassifier, controls: pd.DataFr
         print(f"Control stage: {len(speakers)} control speakers, {len(controls)} clips",
               flush=True)
         _train(model, controls, job.control_stages, job, feature_extractor, noise, generator)
-        _save(model, path, job, job.control_stages, speakers)
+        _save(model, path, job, job.control_stages, speakers, run_id)
     frame = _predict(model, evaluation_clips(dysarthric), job, feature_extractor)
     no_dysarthric_training = {s: frozenset() for s in dysarthric["speaker_id"].unique()}
     save_loso_run([frame], no_dysarthric_training, speakers, job.seed,
@@ -274,7 +278,7 @@ def _control_stage(job: SslJob, model: SSLCommandClassifier, controls: pd.DataFr
 
 def _fold_model(job: SslJob, index: int, speaker: str, train_df: pd.DataFrame,
                 control_speakers: Sequence[str], feature_extractor, noise: NoiseBank,
-                reuse: bool) -> SSLCommandClassifier:
+                reuse: bool, run_id: str) -> SSLCommandClassifier:
     """Fold `index`'s model: its checkpoint if reused, else trained from controls.pt and saved."""
     path = job.out_dir / fold_checkpoint(index, speaker)
     if reuse:
@@ -285,19 +289,20 @@ def _fold_model(job: SslJob, index: int, speaker: str, train_df: pd.DataFrame,
     generator = _seed_unit(job, index)
     _train(model, train_df, (job.dysarthric_stage,), job, feature_extractor, noise, generator)
     _save(model, path, job, (*job.control_stages, job.dysarthric_stage),
-          [*train_df["speaker_id"], *control_speakers])
+          [*train_df["speaker_id"], *control_speakers], run_id)
     return model
 
 
 def _folds(job: SslJob, controls: pd.DataFrame, dysarthric: pd.DataFrame,
-           feature_extractor, noise: NoiseBank, reused: FrozenSet[str]) -> None:
+           feature_extractor, noise: NoiseBank, reused: Mapping[str, dict],
+           run_id: str) -> None:
     """One dysarthric fine-tune per held-out speaker, each from controls.pt; save the LOSO run."""
     control_speakers = sorted(controls["speaker_id"].unique())
     frames, fold_train = [], {}
     for i, speaker in enumerate(sorted(dysarthric["speaker_id"].unique()), start=1):
         train_df, test_df = split_fold(dysarthric, speaker)
         model = _fold_model(job, i, speaker, train_df, control_speakers, feature_extractor,
-                            noise, fold_checkpoint(i, speaker) in reused)
+                            noise, fold_checkpoint(i, speaker) in reused, run_id)
         frames.append(_predict(model, test_df, job, feature_extractor))
         fold_train[speaker] = frozenset(train_df["speaker_id"])
         del model  # before the next fold loads its own: one model in memory at a time
@@ -322,6 +327,8 @@ def run_ssl_finetuning(job: SslJob, samples: pd.DataFrame) -> Tuple[Run, Run]:
     _check_speakers(controls, dysarthric)
     units = _units(job, controls, dysarthric)
     reused = _reusable(job, units)
+    kept_controls = reused.get(CONTROLS_CHECKPOINT)
+    run_id = kept_controls[RUN_ID] if kept_controls else new_run_id()  # not from the seeded RNGs
     noise = NoiseBank.from_dir(job.noise_dir, SAMPLE_RATE)
     feature_extractor = load_feature_extractor(job.backbone, job.cache_dir)
     generator = _seed_unit(job, CONTROL_UNIT)  # the control unit's seed also draws the new head
@@ -332,7 +339,7 @@ def run_ssl_finetuning(job: SslJob, samples: pd.DataFrame) -> Tuple[Run, Run]:
         save_cost(cost, Path(job.runs_dir) / name(job.backbone.name) / COST_FILE)
     job.out_dir.mkdir(parents=True, exist_ok=True)
     _control_stage(job, model.to(job.device), controls, dysarthric, feature_extractor,
-                   noise, generator, CONTROLS_CHECKPOINT in reused)
+                   noise, generator, kept_controls is not None, run_id)
     del model
-    _folds(job, controls, dysarthric, feature_extractor, noise, reused)
+    _folds(job, controls, dysarthric, feature_extractor, noise, reused, run_id)
     return load_run(job.out_dir / EVAL_DIR), load_run(job.controls_out_dir / EVAL_DIR)
