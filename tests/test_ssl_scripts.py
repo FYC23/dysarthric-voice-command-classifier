@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 import torch
 
-from src.eval.constants import DYSARTHRIC_SPEAKERS
+from src.eval.constants import CONTROL_SPEAKERS, DYSARTHRIC_SPEAKERS
 from src.training.loso import build_loso_run
 from src.training.ssl_recipe import CONTROL_FINETUNE, CONTROL_HEAD_WARMUP, DYSARTHRIC_FINETUNE
 
@@ -56,6 +56,15 @@ def test_smoke_run_is_one_epoch_per_stage_under_runs_smoke(tmp_path):
     assert [s.epochs for s in job.control_stages] == [1, 1]
     assert job.dysarthric_stage.epochs == 1
     assert job.dysarthric_stage.head_lr == DYSARTHRIC_FINETUNE.head_lr
+
+
+def test_a_real_run_needs_every_control_speaker():
+    script = load_script()
+    samples = pd.DataFrame({"speaker_id": [*DYSARTHRIC_SPEAKERS, *CONTROL_SPEAKERS]})
+    samples = samples.assign(is_dysarthric=samples["speaker_id"].isin(DYSARTHRIC_SPEAKERS))
+    script.check_control_speakers(samples)
+    with pytest.raises(ValueError, match="MC04"):
+        script.check_control_speakers(samples[samples["speaker_id"] != "MC04"])
 
 
 def test_array_mic_summary_averages_speakers():

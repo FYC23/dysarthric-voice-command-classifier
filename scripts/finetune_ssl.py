@@ -16,13 +16,14 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+import pandas as pd
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import config
 from src.data.segments import load_torgo_samples
-from src.eval.constants import ARRAY_MIC
+from src.eval.constants import ARRAY_MIC, CONTROL_SPEAKERS
 from src.eval.schema import Run
 from src.model.backbones import BACKBONES
 from src.training.device import pick_device
@@ -54,6 +55,14 @@ def make_job(args: argparse.Namespace, runs_dir: Path, noise_dir: Path, cache_di
                    dysarthric_stage=replace(job.dysarthric_stage, epochs=1))
 
 
+def check_control_speakers(samples: pd.DataFrame) -> None:
+    """A real run trains its control stage on all 7 TORGO control speakers."""
+    found = tuple(sorted(samples.loc[~samples["is_dysarthric"], "speaker_id"].unique()))
+    if found != CONTROL_SPEAKERS:
+        raise ValueError(f"expected the control speakers {CONTROL_SPEAKERS}, got {found}; "
+                         "is data/raw/TORGO complete (bash scripts/download_torgo.sh)?")
+
+
 def array_mic_summary(run: Run) -> str:
     """Per-speaker and speaker-averaged accuracy on the array mic (the headline mic)."""
     array = run.predictions[run.predictions["mic"] == ARRAY_MIC]
@@ -67,7 +76,9 @@ def main(argv=None) -> None:
     job = make_job(args, config.RUNS_DIR, config.NOISE_DIR, config.MODEL_CACHE_DIR,
                    pick_device(args.device))
     print(f"{job.backbone.name} ({job.backbone.hf_id}), seed {job.seed}, on {job.device}")
-    loso, controls = run_ssl_finetuning(job, load_torgo_samples(config).samples)
+    samples = load_torgo_samples(config).samples
+    check_control_speakers(samples)
+    loso, controls = run_ssl_finetuning(job, samples)
     for run in (controls, loso):
         print(array_mic_summary(run))
     print(f"-> {job.out_dir / 'eval'} and {job.controls_out_dir / 'eval'}")

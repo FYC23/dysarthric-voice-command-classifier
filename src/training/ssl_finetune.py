@@ -20,6 +20,7 @@ from src.config import Config
 from src.data.dataset import TORGOCommandDataset, collate_fn
 from src.data.noise import NoiseBank
 from src.data.segments import evaluation_clips
+from src.eval.constants import DYSARTHRIC_SPEAKERS
 from src.eval.cost import COST_FILE, CostProfile, profile_model, save_cost
 from src.eval.io import METADATA_FILE, load_run
 from src.eval.schema import Run
@@ -124,6 +125,7 @@ def _save(model: SSLCommandClassifier, path: Path, job: SslJob,
                 "seed": job.seed, "classes": list(TORGO_CLASSES),
                 "masking": dict(MASKING_OVERRIDES),
                 "attn_implementation": model.backbone.config._attn_implementation,
+                "device": str(job.device), "num_workers": job.num_workers,
                 "stages": [asdict(s) for s in stages],
                 "train_speakers": sorted(set(train_speakers))}, path)
 
@@ -192,8 +194,18 @@ def _folds(job: SslJob, controls: pd.DataFrame, dysarthric: pd.DataFrame,
               [*train_df["speaker_id"], *control_speakers])
         frames.append(_predict(model, test_df, job, feature_extractor))
         fold_train[speaker] = frozenset(train_df["speaker_id"])
+        del model  # before the next fold loads its own: one model in memory at a time
     save_loso_run(frames, fold_train, control_speakers, job.seed,
                   run_name(job.backbone.name), job.out_dir / EVAL_DIR)
+
+
+def _check_speakers(controls: pd.DataFrame, dysarthric: pd.DataFrame) -> None:
+    """Every dysarthric speaker is a fold, and the control stage needs a control speaker."""
+    found = tuple(sorted(dysarthric["speaker_id"].unique()))
+    if found != DYSARTHRIC_SPEAKERS:
+        raise ValueError(f"expected the dysarthric speakers {DYSARTHRIC_SPEAKERS}, got {found}")
+    if controls.empty:
+        raise ValueError("no control speakers: the control stage has nothing to train on")
 
 
 def run_ssl_finetuning(job: SslJob, samples: pd.DataFrame) -> Tuple[Run, Run]:
@@ -202,6 +214,7 @@ def run_ssl_finetuning(job: SslJob, samples: pd.DataFrame) -> Tuple[Run, Run]:
     set_seed(job.seed)
     df = with_label_ids(samples)
     controls, dysarthric = df[~df["is_dysarthric"]], df[df["is_dysarthric"]]
+    _check_speakers(controls, dysarthric)
     noise = NoiseBank.from_dir(job.noise_dir, SAMPLE_RATE)
     feature_extractor = load_feature_extractor(job.backbone, job.cache_dir)
     model = build_model(job)

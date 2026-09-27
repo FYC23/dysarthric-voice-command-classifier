@@ -1,6 +1,8 @@
 """SSL per-seed flow: control stage, controls-only run, LOSO folds, cost."""
 
+import gc
 import shutil
+import weakref
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -81,6 +83,8 @@ def test_checkpoints_record_what_produced_them(small_torgo, tmp_path):
     assert fold["masking"] == dict(MASKING_OVERRIDES)
     used = build_model(job).backbone.config._attn_implementation
     assert controls["attn_implementation"] == fold["attn_implementation"] == used
+    assert fold["num_workers"] == controls["num_workers"] == 0
+    assert fold["device"] == controls["device"] == "cpu"
 
 
 @pytest.mark.parametrize("device, expected", [("mps", "eager"), ("cpu", None)])
@@ -135,6 +139,39 @@ def seed_with(job, *files):
 def refuse_to_load_a_model(monkeypatch):
     monkeypatch.setattr(ssl_finetune, "build_model",
                         lambda job: pytest.fail("loaded a model for a seed it must not train"))
+
+
+@pytest.mark.parametrize("missing, message", [("M04", "dysarthric speakers"),
+                                              ("FC01", "no control speakers")])
+def test_a_seed_needs_all_8_dysarthric_speakers_and_a_control(small_torgo, tmp_path,
+                                                              monkeypatch, missing, message):
+    job = make_job(tmp_path, noise_dir=tmp_path / "no-noise")  # noise would fail if loaded
+    refuse_to_load_a_model(monkeypatch)
+    monkeypatch.setattr(ssl_finetune, "load_feature_extractor",
+                        lambda *a: pytest.fail("loaded a feature extractor"))
+    with pytest.raises(ValueError, match=message):
+        run_ssl_finetuning(job, small_torgo[small_torgo["speaker_id"] != missing])
+    assert not job.runs_dir.exists()
+
+
+def test_each_fold_frees_the_previous_model_before_loading(small_torgo, tmp_path, monkeypatch):
+    built, alive_at_load = [], []
+    build, load = ssl_finetune.build_model, ssl_finetune._load
+
+    def spy_build(job):
+        model = build(job)
+        built.append(weakref.ref(model))
+        return model
+
+    def spy_load(job, path):
+        gc.collect()
+        alive_at_load.append(sum(ref() is not None for ref in built))
+        return load(job, path)
+
+    monkeypatch.setattr(ssl_finetune, "build_model", spy_build)
+    monkeypatch.setattr(ssl_finetune, "_load", spy_load)
+    run_ssl_finetuning(make_job(tmp_path), small_torgo)
+    assert alive_at_load == [0] * 8  # peak memory: one model
 
 
 def test_a_finished_seed_is_never_overwritten(small_torgo, tmp_path, monkeypatch):
