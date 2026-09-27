@@ -153,6 +153,10 @@ Outputs, per backbone `<b>` and seed `<k>`:
 - `runs/<b>-controls/seed<k>/eval/`: the control-stage model scored on all 8 dysarthric speakers
 - `runs/<b>/cost.json`, `runs/<b>-controls/cost.json`: parameters and MACs for one 2 s window
 
+Every checkpoint is a full state dict, so one seed writes 9 of them: about 0.9 GB for
+`distilhubert`, 3.4 GB for `hubert-base` and 11.4 GB for `hubert-large` (about 47 GB for
+all three backbones x 3 seeds). A seed checks for that much free space before it writes anything.
+
 A finished seed is never overwritten: delete `runs/<b>/seed<k>/` to train it again.
 Runs left under `runs/hubert-large/` by the removed `scripts/train.py` (an `eval/run.json`
 with no `controls.pt`) must be moved or deleted first; both scripts refuse to start over one.

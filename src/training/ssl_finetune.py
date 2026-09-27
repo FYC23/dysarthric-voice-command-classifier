@@ -7,6 +7,7 @@ stage. No model is trained on all 8 dysarthric speakers. Hyperparameters are
 fixed (src/training/ssl_recipe.py); last epoch kept.
 """
 
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence, Tuple
@@ -40,6 +41,7 @@ from src.training.ssl_recipe import (
 CONTROLS_CHECKPOINT = "controls.pt"
 EVAL_DIR = "eval"
 EVAL_BATCH_SIZE = 16
+GB = 1e9
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,26 @@ def _refuse_finished(job: SslJob) -> None:
     raise FileExistsError(f"{marker} exists without {CONTROLS_CHECKPOINT}: it looks like "
                           "output of the removed scripts/train.py; move or delete "
                           f"{job.out_dir} before training this seed")
+
+
+def state_dict_bytes(model: torch.nn.Module) -> int:
+    """Bytes of the tensors one checkpoint of `model` holds (every _save is a full state dict)."""
+    return sum(t.numel() * t.element_size() for t in model.state_dict().values())
+
+
+def _nearest_existing(path: Path) -> Path:
+    path = Path(path).absolute()
+    while not path.exists():
+        path = path.parent
+    return path
+
+
+def _check_disk_space(runs_dir: Path, needed: int) -> None:
+    """Fail now, not hours in, when a seed's checkpoints cannot fit under `runs_dir`."""
+    free = shutil.disk_usage(_nearest_existing(runs_dir)).free
+    if needed > free:
+        raise OSError(f"this seed needs {needed / GB:.1f} GB of checkpoints under {runs_dir}, "
+                      f"but only {free / GB:.1f} GB free; free space or move runs/")
 
 
 def _save(model: SSLCommandClassifier, path: Path, job: SslJob,
@@ -183,6 +205,8 @@ def run_ssl_finetuning(job: SslJob, samples: pd.DataFrame) -> Tuple[Run, Run]:
     noise = NoiseBank.from_dir(job.noise_dir, SAMPLE_RATE)
     feature_extractor = load_feature_extractor(job.backbone, job.cache_dir)
     model = build_model(job)
+    checkpoints = 1 + dysarthric["speaker_id"].nunique()  # controls.pt + one per fold
+    _check_disk_space(job.runs_dir, checkpoints * state_dict_bytes(model))
     cost = ssl_cost(model)  # before training, so a failure here costs seconds
     for name in (run_name, controls_run_name):
         save_cost(cost, Path(job.runs_dir) / name(job.backbone.name) / COST_FILE)

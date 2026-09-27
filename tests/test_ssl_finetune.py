@@ -2,6 +2,8 @@
 
 import shutil
 from dataclasses import asdict, replace
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -17,6 +19,7 @@ from src.model.backbones import MASKING_OVERRIDES
 from src.training.loso import TORGO_CLASSES
 from src.training.ssl_finetune import (
     CONTROLS_CHECKPOINT, EVAL_DIR, SslJob, build_model, run_ssl_finetuning, ssl_cost,
+    state_dict_bytes,
 )
 from src.training.ssl_recipe import AdamWStage
 
@@ -57,6 +60,11 @@ def test_a_seed_writes_checkpoints_both_runs_and_cost(small_torgo, tmp_path):
     for name in ("tiny-hubert", "tiny-hubert-controls"):
         cost = load_cost(job.runs_dir / name / COST_FILE)
         assert cost.input_seconds == 2.0 and cost.params == count_params(build_model(job))
+    # the disk check's estimate, controls.pt plus one checkpoint per fold, is a floor; the
+    # file overhead per tensor is fixed, so large next to this tiny model's tensors only
+    written = sum(p.stat().st_size for p in job.out_dir.glob("*.pt"))
+    estimate = 9 * state_dict_bytes(build_model(job))
+    assert estimate <= written < 1.25 * estimate
 
 
 def test_checkpoints_record_what_produced_them(small_torgo, tmp_path):
@@ -165,11 +173,53 @@ def test_missing_noise_fails_before_anything_is_written(small_torgo, tmp_path):
     assert not (job.runs_dir).exists()
 
 
-def test_cost_is_written_before_training(small_torgo, tmp_path, monkeypatch):
+def free_space(monkeypatch, free):
+    """Pretend the disk has `free` bytes; returns the paths asked about."""
+    asked = []
+
+    def disk_usage(path):
+        asked.append(Path(path))
+        return SimpleNamespace(total=free, used=0, free=free)
+
+    monkeypatch.setattr(ssl_finetune.shutil, "disk_usage", disk_usage)
+    return asked
+
+
+def fail_training(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("training failed")
 
     monkeypatch.setattr(ssl_finetune, "run_stage", boom)
+
+
+def test_a_seed_that_cannot_fit_on_disk_fails_before_anything_is_written(small_torgo, tmp_path,
+                                                                        monkeypatch):
+    job = make_job(tmp_path)
+    needed = 9 * state_dict_bytes(build_model(job))  # controls.pt + 8 folds
+    asked = free_space(monkeypatch, needed - 1)
+    with pytest.raises(OSError, match=r"needs \d+\.\d GB .* \d+\.\d GB free"):
+        run_ssl_finetuning(job, small_torgo)
+    assert asked == [tmp_path]  # runs/ does not exist yet: its nearest existing parent
+    assert not job.runs_dir.exists()
+
+
+def test_a_seed_that_fits_on_disk_goes_on_to_train(small_torgo, tmp_path, monkeypatch):
+    job = make_job(tmp_path)
+    free_space(monkeypatch, 9 * state_dict_bytes(build_model(job)))
+    fail_training(monkeypatch)
+    with pytest.raises(RuntimeError, match="training failed"):
+        run_ssl_finetuning(job, small_torgo)
+
+
+def test_state_dict_bytes_counts_every_saved_tensor():
+    model = torch.nn.Sequential(torch.nn.Linear(3, 2), torch.nn.BatchNorm1d(2))
+    # weight 6 + bias 2 + bn weight, bias, running mean, running var 2 each: float32;
+    # num_batches_tracked: one int64
+    assert state_dict_bytes(model) == (6 + 2 + 4 * 2) * 4 + 8
+
+
+def test_cost_is_written_before_training(small_torgo, tmp_path, monkeypatch):
+    fail_training(monkeypatch)
     job = make_job(tmp_path)
     with pytest.raises(RuntimeError, match="training failed"):
         run_ssl_finetuning(job, small_torgo)
