@@ -217,7 +217,7 @@ dysarthric-voice-command-classifier/
 │   ├── eval/                  # Evaluation harness, reports and plots
 │   └── baselines/asr/         # Whisper / Parakeet zero-shot baselines
 ├── scripts/                   # Download, train, baseline and report entry points
-├── docs/                      # SSL reference model, literature review
+├── docs/                      # SSL reference model
 ├── data/                      # Gitignored except README and labels: datasets and caches
 ├── runs/                      # Gitignored: checkpoints and eval runs
 ├── outputs/                   # Results tables and figures
