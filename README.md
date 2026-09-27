@@ -75,7 +75,7 @@ answer with the model's size and its CPU latency.
 ![The demo scoring a TORGO clip: BC-ResNet-8 answers "down" at 100% in 130 ms; Parakeet hears "Let's go." and maps it to "no" in 6.7 s](docs/demo.gif)
 
 *TORGO speaker F01 (severe dysarthria) says "down". BC-ResNet-8 is scored with
-`fold1_F01.pt`, which never trained on F01. Timings on an M2 Pro CPU; the wait is sped
+`fold1_F01.pt`, which never trained on F01. Timings on an M2 Pro chip; the wait is sped
 up 4×. One selected example: the Results table above is the evidence.*
 
 ```bash
