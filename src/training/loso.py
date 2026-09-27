@@ -1,22 +1,36 @@
 """
-Leave-one-speaker-out helpers shared by every trained model (HuBERT in
-scripts/train.py, BC-ResNet in src/training/finetune.py): the fold split,
+Leave-one-speaker-out helpers shared by every trained model (the SSL
+backbones and BC-ResNet): the 20-command label table, the fold split,
 eval-harness rows, building and saving a run, class weights and seeding.
 """
 
 import random
 from pathlib import Path
-from typing import Mapping, Sequence, Tuple
+from typing import Dict, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
 
+from src.config import Config
 from src.data.segments import evaluation_clips
 from src.eval.io import save_run
 from src.eval.schema import PRED_COLUMNS, EvalValidationError, Run
 
 UNVALIDATED_PREDICTIONS = "predictions_unvalidated.csv"
+
+# The 20 TORGO commands in one fixed order, whatever subset a data table holds
+TORGO_CLASSES: Tuple[str, ...] = tuple(sorted(Config.TARGET_COMMANDS))
+LABEL2ID: Dict[str, int] = {word: i for i, word in enumerate(TORGO_CLASSES)}
+ID2LABEL: Dict[int, str] = dict(enumerate(TORGO_CLASSES))
+
+
+def with_label_ids(samples: pd.DataFrame) -> pd.DataFrame:
+    """A copy of `samples` with `label_id` from the fixed 20-command table."""
+    unknown = sorted(set(samples["label"]) - set(TORGO_CLASSES))
+    if unknown:
+        raise ValueError(f"labels outside the 20 commands: {unknown}")
+    return samples.assign(label_id=samples["label"].map(LABEL2ID).astype(int))
 
 
 def set_seed(seed: int) -> None:

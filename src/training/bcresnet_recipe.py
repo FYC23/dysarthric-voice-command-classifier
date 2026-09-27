@@ -6,7 +6,6 @@ fixed in advance and never tuned on LOSO results.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import torch
 from torch.optim.lr_scheduler import LambdaLR
@@ -14,6 +13,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from src.config import Config
 from src.model.bcresnet import BCResNet
 from src.model.frontend import HOP_LENGTH
+from src.training.device import pick_device  # re-exported for the BC-ResNet scripts
 from src.training.schedule import warmup_cosine_scheduler
 
 TAUS = (1, 2, 3, 8)
@@ -81,14 +81,3 @@ def run_name(tau: float) -> str:
 
 def seed_dir(runs_dir: Path, tau: float, seed: int) -> Path:
     return Path(runs_dir) / run_name(tau) / f"seed{seed}"
-
-
-def pick_device(name: Optional[str] = None) -> torch.device:
-    """`name` if given, else CUDA, then MPS, then CPU."""
-    if name:
-        return torch.device(name)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")

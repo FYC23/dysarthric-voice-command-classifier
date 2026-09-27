@@ -1,20 +1,27 @@
-"""Leave-one-speaker-out helpers shared by HuBERT (scripts/train.py) and BC-ResNet."""
+"""
+Leave-one-speaker-out helpers shared by every trained model (the SSL
+backbones and BC-ResNet): the 20-command label table, the fold split,
+eval-harness rows, building and saving a run, class weights and seeding.
+"""
 
 import numpy as np
 import pandas as pd
 import pytest
 import torch
 
+from src.config import Config
 from src.eval.io import load_run
 from src.eval.schema import CLIP_KEY, EvalValidationError
+from src.training import bcresnet_recipe, finetune
+from src.training.device import pick_device
 from src.training.loso import (
-    UNVALIDATED_PREDICTIONS, balanced_class_weights, build_loso_run, fold_predictions,
-    save_loso_run, set_seed, split_fold,
+    ID2LABEL, LABEL2ID, TORGO_CLASSES, UNVALIDATED_PREDICTIONS, balanced_class_weights,
+    build_loso_run, fold_predictions, save_loso_run, set_seed, split_fold, with_label_ids,
 )
 
 DYSARTHRIC = ("F01", "F03", "F04", "M01", "M02", "M03", "M04", "M05")
 CONTROLS = ("FC01", "MC01")
-ID2LABEL = {0: "no", 1: "yes"}
+YES_NO_ID2LABEL = {0: "no", 1: "yes"}
 MODEL = "bcresnet-1"
 
 
@@ -41,7 +48,7 @@ def loso_inputs():
 
 def test_fold_predictions_pair_each_clip_with_its_predicted_word():
     rows = fold_predictions(fold_test_df("M04"), pred_ids=[1, 1], label_ids=[1, 0],
-                            id2label=ID2LABEL)
+                            id2label=YES_NO_ID2LABEL)
     assert rows.to_dict("records") == [
         {"speaker_id": "M04", "session": "Session1", "utterance_id": "0001",
          "mic": "wav_arrayMic", "label": "yes", "pred": "yes"},
@@ -55,7 +62,7 @@ def test_fold_predictions_refuse_labels_out_of_order():
     # be attached to the wrong clips; the returned labels expose it.
     with pytest.raises(ValueError, match="order"):
         fold_predictions(fold_test_df("M04"), pred_ids=[1, 1], label_ids=[0, 1],
-                         id2label=ID2LABEL)
+                         id2label=YES_NO_ID2LABEL)
 
 
 def test_loso_run_records_controls_in_every_fold_and_validates():
@@ -119,3 +126,31 @@ def test_set_seed_makes_torch_and_numpy_repeat():
     first = (torch.rand(1).item(), np.random.rand())
     set_seed(7)
     assert (torch.rand(1).item(), np.random.rand()) == first
+
+
+def test_label_table_is_the_20_sorted_commands():
+    assert TORGO_CLASSES == tuple(sorted(Config.TARGET_COMMANDS))
+    assert LABEL2ID == {w: i for i, w in enumerate(TORGO_CLASSES)}
+    assert ID2LABEL == dict(enumerate(TORGO_CLASSES))
+
+
+def test_with_label_ids_uses_the_fixed_table_and_keeps_the_input():
+    samples = pd.DataFrame({"label": ["zero", "back"]})
+    out = with_label_ids(samples)
+    assert out["label_id"].tolist() == [LABEL2ID["zero"], LABEL2ID["back"]]
+    assert "label_id" not in samples.columns
+
+
+def test_with_label_ids_rejects_other_words():
+    with pytest.raises(ValueError, match="outside the 20 commands"):
+        with_label_ids(pd.DataFrame({"label": ["yes", "hello"]}))
+
+
+def test_pick_device_honours_an_explicit_name():
+    assert pick_device("cpu") == torch.device("cpu")
+
+
+def test_bcresnet_code_uses_the_shared_helpers():
+    assert bcresnet_recipe.pick_device is pick_device
+    assert finetune.TORGO_CLASSES is TORGO_CLASSES
+    assert finetune._with_label_ids is with_label_ids

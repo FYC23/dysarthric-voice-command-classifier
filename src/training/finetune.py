@@ -28,16 +28,15 @@ from src.training.bcresnet_recipe import (
     WINDOW_S, WINDOW_SAMPLES, SgdStage, run_name,
 )
 from src.training.loso import (
-    balanced_class_weights, fold_predictions, save_loso_run, set_seed, split_fold,
+    ID2LABEL, LABEL2ID, TORGO_CLASSES, balanced_class_weights, fold_predictions,
+    save_loso_run, set_seed, split_fold,
 )
+from src.training.loso import with_label_ids as _with_label_ids
 
 CONTROLS_CHECKPOINT = "controls.pt"
 DEPLOY_CHECKPOINT = "deploy.pt"
 EVAL_DIR = "eval"
 EVAL_BATCH_SIZE = 64
-TORGO_CLASSES: Tuple[str, ...] = tuple(sorted(Config.TARGET_COMMANDS))
-LABEL2ID = {word: i for i, word in enumerate(TORGO_CLASSES)}
-ID2LABEL = dict(enumerate(TORGO_CLASSES))
 
 
 @dataclass(frozen=True)
@@ -58,13 +57,6 @@ def bcresnet_cost(tau: float) -> CostProfile:
     return profile_model(BCResNet(tau, len(TORGO_CLASSES)),
                          torch.zeros(1, 1, N_MELS, WINDOW_FRAMES), WINDOW_S,
                          note="log-Mel front end not counted")
-
-
-def _with_label_ids(samples: pd.DataFrame) -> pd.DataFrame:
-    unknown = sorted(set(samples["label"]) - set(TORGO_CLASSES))
-    if unknown:
-        raise ValueError(f"labels outside the 20 commands: {unknown}")
-    return samples.assign(label_id=samples["label"].map(LABEL2ID).astype(int))
 
 
 def _load_pretrained(job: FinetuneJob) -> BCResNet:
