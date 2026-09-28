@@ -7,7 +7,6 @@ Colours are the dataviz reference palette: categorical slots 1-2 (validated
 colour-blind safe as a pair) and its blue sequential ramp.
 """
 
-import math
 from pathlib import Path
 from typing import List, Mapping, Optional, Sequence, Tuple
 
@@ -17,6 +16,9 @@ from matplotlib.figure import Figure
 from src.eval.aggregate import ModelSummary, check_summaries_comparable
 from src.eval.constants import MIC_LABELS
 from src.eval.cost import CostProfile
+from src.eval.labels import (
+    Box, Position, candidate_positions, choose_placements, label_box,
+)
 
 SURFACE = "#fcfcfb"
 TEXT = "#0b0b0b"
@@ -28,9 +30,16 @@ SERIES_2 = "#eb6834"  # secondary series, e.g. Speech Commands
 SEQUENTIAL = (SURFACE, "#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b")
 DPI = 200
 
-LABEL_NEIGHBOURHOOD_DECADES = 1.0  # models this close on the log x axis share label rows
-LABEL_GAP_PT = 6   # between a label and the error bar it hangs from
-LABEL_ROW_PT = 12  # one row of 8 pt labels
+LABEL_GAP_PT = 6       # between a label and the end of its error bar
+LABEL_SIDE_PT = 11     # from a point's centre to a label beside it (clears the clearance)
+LABEL_STEP_PT = 6      # a label moves out half a row (8 pt text) at a time
+LABEL_MAX_STEPS = 8    # how far past the end of its error bar a label may go
+LABEL_SHIFT_PT = 4     # a label under or over its bar slides sideways this much at a time
+LABEL_MAX_SHIFTS = 8   # ... up to this many times each way
+LABEL_CLEARANCE_PT = 5  # sideways room kept between a label and another model's bar
+LABEL_PAD_PT = 1.5     # room kept around every label, so neighbouring labels never touch
+LABEL_POSITIONS = candidate_positions(LABEL_GAP_PT, LABEL_SIDE_PT, LABEL_STEP_PT,
+                                      LABEL_SHIFT_PT, LABEL_MAX_STEPS, LABEL_MAX_SHIFTS)
 
 # Cost axis: (x-axis label, title)
 COST_AXES = {
@@ -58,65 +67,85 @@ def plot_accuracy_vs_macs(summaries: Sequence[ModelSummary], costs: Mapping[str,
     plot_accuracy_vs_cost(summaries, costs, path, "macs", secondary, secondary_label, labels)
 
 
-def _label_anchors(xs: Sequence[float], lows: Sequence[float]) -> list:
-    """
-    Height to hang each label from: the lowest CI among models within a decade
-    on the log x axis, so alternating label rows line up across neighbours.
-    A non-positive cost has no place on a log axis and keeps its own CI.
-    """
-    logs = [math.log10(x) if x > 0 else None for x in xs]
-    return [low if logs[i] is None else
-            min(other for lx, other in zip(logs, lows)
-                if lx is not None and abs(lx - logs[i]) <= LABEL_NEIGHBOURHOOD_DECADES)
-            for i, low in enumerate(lows)]
+def _box(ax, x0: float, y0: float, x1: float, y1: float, pad_x: float, pad_y: float) -> Box:
+    """Data-space rectangle -> display box, padded by pad_x / pad_y display units."""
+    (ax0, ay0), (ax1, ay1) = ax.transData.transform([(x0, y0), (x1, y1)])
+    return (min(ax0, ax1) - pad_x, min(ay0, ay1) - pad_y,
+            max(ax0, ax1) + pad_x, max(ay0, ay1) + pad_y)
 
 
-def _label_rows(boxes: Sequence[Tuple[float, float, float, float]],
-                row_height: float) -> List[int]:
-    """
-    Row for each label box (x0, y0, x1, y1, display units, y up), in the given
-    order: the first row, counting down, where the box shifted down by
-    row x `row_height` clears every box placed before it.
-    """
-    placed: List[Tuple[float, float, float, float]] = []
-    rows = []
-    for x0, y0, x1, y1 in boxes:
-        row = 0
-        while any(x0 < px1 and px0 < x1 and y0 - row * row_height < py1
-                  and py0 < y1 - row * row_height for px0, py0, px1, py1 in placed):
-            row += 1
-        placed.append((x0, y0 - row * row_height, x1, y1 - row * row_height))
-        rows.append(row)
-    return rows
+def _obstacles(fig: Figure, ax) -> List[Box]:
+    """Everything a label must not cover: markers (points, caps), error bars, the legend."""
+    pt = fig.dpi / 72
+    boxes = []
+    for line in ax.lines:
+        if line.get_marker() in (None, "None", "", " "):
+            continue
+        half = (line.get_markersize() + line.get_markeredgewidth()) / 2 * pt
+        boxes += [_box(ax, x, y, x, y, half + LABEL_CLEARANCE_PT * pt, half)
+                  for x, y in line.get_xydata()]
+    for collection in ax.collections:
+        boxes += [_box(ax, *seg[0], *seg[-1], LABEL_CLEARANCE_PT * pt, 0)
+                  for seg in collection.get_segments()]
+    legend = ax.get_legend()
+    if legend is not None:
+        boxes.append(tuple(legend.get_window_extent().extents))
+    return boxes
 
 
-def _stack_labels(fig: Figure, texts: Sequence) -> None:
-    """Move each label (in x order) down as many rows as it needs to overlap none before it."""
-    boxes = [tuple(t.get_window_extent().extents) for t in texts]
-    rows = _label_rows(boxes, LABEL_ROW_PT * fig.dpi / 72)
-    for text, row in zip(texts, rows):
-        text.xyann = (0, -LABEL_GAP_PT - LABEL_ROW_PT * row)
+def _anchor(point: Tuple[float, float, float, float], along: float) -> Tuple[float, float]:
+    """Data spot on a point's (x, y, ci_low, ci_high) error bar at `along` (see Position)."""
+    x, y, low, high = point
+    return x, y + abs(along) * ((high if along > 0 else low) - y)
+
+
+def _move_label(text, point: Tuple[float, float, float, float], position: Position) -> None:
+    """Put `text` at `position` around point (x, y, ci_low, ci_high)."""
+    text.xy = _anchor(point, position.along)
+    text.xyann = (position.dx, position.dy)
+    text.set_horizontalalignment(position.ha)
+    text.set_verticalalignment(position.va)
+
+
+def _candidates(fig: Figure, ax, text, point: tuple) -> List[Box]:
+    """Display box of `text` at each of LABEL_POSITIONS around `point`, LABEL_PAD_PT wider."""
+    extent, pad = text.get_window_extent(), LABEL_PAD_PT * fig.dpi / 72
+    boxes = [label_box(tuple(ax.transData.transform(_anchor(point, p.along))),
+                       (extent.width, extent.height), p, fig.dpi / 72) for p in LABEL_POSITIONS]
+    return [(x0 - pad, y0 - pad, x1 + pad, y1 + pad) for x0, y0, x1, y1 in boxes]
+
+
+def _place_labels(fig: Figure, ax, labelled: Sequence[tuple]) -> None:
+    """
+    Each (label, point) at the most preferred position that keeps it inside
+    the axes, clear of every obstacle and label, and nearest its own bar
+    (least nearer another, where neighbours leave no such spot).
+    """
+    candidates = [_candidates(fig, ax, text, point) for text, point in labelled]
+    bars = [_box(ax, x, low, x, high, 0, 0) for _, (x, _, low, high) in labelled]
+    chosen = choose_placements(candidates, _obstacles(fig, ax),
+                               tuple(ax.get_window_extent().extents), bars)
+    for (text, point), i in zip(labelled, chosen):
+        _move_label(text, point, LABEL_POSITIONS[i])
 
 
 def _plot_points(ax, summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
                  axis: str, labels: Mapping[str, str]) -> list:
-    """Each model's accuracy and CI at its cost, labelled; returns the labels in x order."""
+    """Each model's accuracy and CI at its cost; returns (label, point) pairs in x order."""
     ordered = sorted(summaries, key=lambda s: getattr(costs[s.model], axis))
-    anchors = _label_anchors([getattr(costs[s.model], axis) for s in ordered],
-                             [100 * s.ci_low for s in ordered])
-    texts = []
+    labelled = []
     for i, s in enumerate(ordered):
         x, y = getattr(costs[s.model], axis), 100 * s.headline
         err = [[y - 100 * s.ci_low], [100 * s.ci_high - y]]
         ax.errorbar(x, y, yerr=err, fmt="o", color=SERIES_1, ms=8, mec=SURFACE, mew=2,
                     elinewidth=1.2, capsize=3, zorder=3,
                     label="TORGO dysarthric (95% CI over speakers)" if i == 0 else None)
-        # Under the error bar (Speech Commands markers sit above); _stack_labels
-        # then moves labels of nearby models onto separate rows
-        texts.append(ax.annotate(labels.get(s.model, s.model), (x, anchors[i]),
-                                 xytext=(0, -LABEL_GAP_PT), textcoords="offset points",
-                                 ha="center", va="top", fontsize=8, color=TEXT_SECONDARY))
-    return texts
+        # Starts under the error bar; _place_labels moves it if that spot is taken
+        text = ax.annotate(labels.get(s.model, s.model), (x, 100 * s.ci_low),
+                           xytext=(0, -LABEL_GAP_PT), textcoords="offset points",
+                           ha="center", va="top", fontsize=8, color=TEXT_SECONDARY)
+        labelled.append((text, (x, y, 100 * s.ci_low, 100 * s.ci_high)))
+    return labelled
 
 
 def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
@@ -143,7 +172,7 @@ def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str,
     fig = Figure(figsize=(8, 4.5), facecolor=SURFACE)
     ax = fig.add_subplot()
     _style(ax)
-    texts = _plot_points(ax, summaries, costs, axis, labels)
+    labelled = _plot_points(ax, summaries, costs, axis, labels)
     if secondary:
         pts = [(getattr(costs[m], axis), 100 * acc) for m, acc in secondary.items()
                if m in costs]
@@ -163,7 +192,7 @@ def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str,
     ax.set_ylabel(f"Speaker-averaged accuracy (%), {mic}", color=TEXT, fontsize=9)
     ax.set_title(title, color=TEXT, fontsize=11, loc="left")
     fig.tight_layout()
-    _stack_labels(fig, texts)
+    _place_labels(fig, ax, labelled)
     fig.savefig(path, dpi=DPI)
     return fig
 

@@ -3,13 +3,14 @@
 import pandas as pd
 import pytest
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.transforms import Bbox
 
 from src.eval.aggregate import summarize
 from src.eval.constants import HEAD_MIC
 from src.eval.cost import CostProfile
 from src.eval.compare import compare
 from src.eval.plots import (
-    _label_rows, plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion,
+    _anchor, plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion,
 )
 from src.eval.report import (
     _signed_pts, comparisons_markdown, comparisons_table, human_count, per_speaker_table,
@@ -201,25 +202,116 @@ def test_a_model_with_zero_cost_does_not_break_the_log_axis_figure(tmp_path):
     assert path.stat().st_size > 0
 
 
-def test_label_rows_push_a_label_down_until_it_clears_the_labels_before_it():
-    boxes = [(0, 0, 10, 5),     # row 0
-             (5, 0, 15, 5),     # hits the first -> row 1
-             (8, 0, 18, 5),     # hits the first on row 0 and the second on row 1 -> row 2
-             (20, 0, 30, 5),    # clear of everything -> row 0
-             (12, -20, 14, -15)]  # already below the others -> row 0
-    assert _label_rows(boxes, row_height=6) == [0, 1, 2, 0, 0]
+def spread_summary(model, correct):
+    """3 seeds; the 8 speakers get the given numbers of 10 clips right, so the CI has width."""
+    by_speaker = dict(zip(ALL_DYSARTHRIC, correct))
+    return summarize([Run(model=model, seed=i, predictions=dysarthric_preds(by_speaker),
+                          fold_train_speakers=loso_folds()) for i in range(3)])
 
 
-def test_many_models_close_together_get_labels_that_do_not_overlap(tmp_path):
-    names = [f"a-long-model-name-{i}" for i in range(5)]
-    costs = {m: CostProfile(params=int(2.4e7 * 1.3 ** i), macs=int(7e9 * 1.2 ** i),
-                            input_seconds=2.0) for i, m in enumerate(names)}
-    for axis in ("params", "macs"):
-        fig = plot_accuracy_vs_cost([summary(m, 7) for m in names], costs,
-                                    tmp_path / "x.png", axis=axis)
-        texts = fig.axes[0].texts
-        renderer = FigureCanvasAgg(fig).get_renderer()  # at the figure's own dpi
-        boxes = [t.get_window_extent(renderer) for t in texts]
-        assert len(boxes) == len(names)
-        assert len({t.xyann for t in texts}) > 1  # crowded enough to need more than one row
-        assert not any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i + 1:])
+# Shaped like the real size curve: pretrained models and ASR crowded into two
+# decades, a precise model above wide intervals on both sides, and a small
+# model with a second (Speech Commands) series and so a legend
+CROWDED = {
+    "BC-ResNet-8": (3.2e5, [7, 8, 8, 9, 9, 9, 9, 10]),
+    "DistilHuBERT": (2.4e7, [6, 7, 8, 8, 9, 8, 9, 9]),
+    "HuBERT-base": (9.5e7, [5, 6, 8, 9, 10, 9, 9, 9]),
+    "HuBERT-large": (3.2e8, [8, 8, 9, 9, 10, 9, 9, 9]),
+    "Parakeet-TDT 0.6B": (6.3e8, [3, 5, 6, 8, 9, 9, 8, 9]),
+    "Whisper large-v3": (1.5e9, [3, 4, 6, 7, 9, 9, 7, 8]),
+}
+# Like the smallest BC-ResNets: a narrow interval between two that reach
+# lower on both sides, too close for its label to fit under it, with a
+# Speech Commands point above it
+SQUEEZED = {
+    "BC-ResNet-1": (9.8e3, [5, 7, 8, 8, 9, 9, 9, 9]),
+    "BC-ResNet-2": (2.8e4, [8, 8, 9, 9, 9, 9, 9, 9]),
+    "BC-ResNet-3": (5.5e4, [7, 8, 9, 9, 9, 9, 9, 10]),
+    "Whisper large-v3": (1.5e9, [3, 4, 6, 7, 9, 9, 7, 8]),
+}
+SPEECH_COMMANDS = {"BC-ResNet-1": 0.95, "BC-ResNet-2": 0.97, "BC-ResNet-3": 0.978,
+                   "BC-ResNet-8": 0.982}
+MAX_LABEL_GAP_PT = 30  # a label never sits further than this from its own bar
+
+
+def label_geometry(fig):
+    """Each label's box and every model's error-bar box, in display units, in x order."""
+    renderer = FigureCanvasAgg(fig).get_renderer()  # at the figure's own dpi
+    ax = fig.axes[0]
+    labels = [t.get_window_extent(renderer) for t in ax.texts]
+    bars = []
+    for container in ax.containers:
+        (x, lo), (_, hi) = container.lines[2][0].get_segments()[0]
+        (x0, y0), (x1, y1) = ax.transData.transform([(x, lo), (x, hi)])
+        bars.append((x0, min(y0, y1), x1, max(y0, y1)))
+    return labels, sorted(bars)
+
+
+def marker_boxes(fig):
+    """A box around every marker drawn (points, error-bar caps, second series)."""
+    ax, pt = fig.axes[0], fig.dpi / 72
+    boxes = []
+    for line in ax.lines:
+        if line.get_marker() in (None, "None", "", " "):
+            continue
+        half = (line.get_markersize() + line.get_markeredgewidth()) / 2 * pt
+        boxes += [Bbox.from_extents(x - half, y - half, x + half, y + half)
+                  for x, y in ax.transData.transform(line.get_xydata())]
+    return boxes
+
+
+def gap(box, bar):
+    """Distance from a label box to a vertical bar box (0 if they touch)."""
+    dx = max(bar[0] - box.x1, box.x0 - bar[2], 0)
+    dy = max(bar[1] - box.y1, box.y0 - bar[3], 0)
+    return (dx ** 2 + dy ** 2) ** 0.5
+
+
+def cost_figures(models, tmp_path):
+    """The params and MACs figures of `models` (name: (cost, correct per speaker))."""
+    summaries = [spread_summary(m, c) for m, (_, c) in models.items()]
+    for axis, scale in (("params", 1), ("macs", 1e-3)):
+        costs = {m: CostProfile(params=int(x), macs=int(x * scale * 50), input_seconds=2.0)
+                 for m, (x, _) in models.items()}
+        yield plot_accuracy_vs_cost(summaries, costs, tmp_path / "x.png", axis=axis,
+                                    secondary=SPEECH_COMMANDS)
+
+
+def assert_labels_clear_everything(fig, n_models):
+    """Inside the axes, and clear of each other, the legend, every marker and other bars."""
+    labels, bars = label_geometry(fig)
+    ax = fig.axes[0]
+    legend = ax.get_legend().get_window_extent()
+    assert len(labels) == len(bars) == n_models
+    assert not any(a.overlaps(b) for i, a in enumerate(labels) for b in labels[i + 1:])
+    for i, box in enumerate(labels):
+        assert ax.bbox.contains(box.x0, box.y0) and ax.bbox.contains(box.x1, box.y1)
+        assert not box.overlaps(legend), f"label {i} covers the legend"
+        assert not any(box.overlaps(m) for m in marker_boxes(fig)), f"label {i} covers a marker"
+        assert gap(box, bars[i]) <= MAX_LABEL_GAP_PT * fig.dpi / 72, f"label {i} is far off"
+        assert all(gap(box, bar) > 0 for j, bar in enumerate(bars) if j != i), \
+            f"label {i} touches another model's error bar"
+    return labels, bars
+
+
+def test_crowded_labels_sit_nearest_their_own_error_bar(tmp_path):
+    for fig in cost_figures(CROWDED, tmp_path):
+        labels, bars = assert_labels_clear_everything(fig, len(CROWDED))
+        for i, box in enumerate(labels):
+            others = [gap(box, bar) for j, bar in enumerate(bars) if j != i]
+            assert gap(box, bars[i]) < min(others), f"label {i} is nearer another point"
+
+
+def test_a_squeezed_label_still_centres_nearest_its_own_point(tmp_path):
+    for fig in cost_figures(SQUEEZED, tmp_path):
+        labels, bars = assert_labels_clear_everything(fig, len(SQUEEZED))
+        for i, box in enumerate(labels):
+            centre = (box.x0 + box.x1) / 2
+            offsets = [abs(centre - bar[0]) for bar in bars]
+            assert offsets[i] < min(o for j, o in enumerate(offsets) if j != i), \
+                f"label {i} is centred nearer another point"
+
+
+@pytest.mark.parametrize("along, y", [(-1, 70), (-0.5, 75), (0, 80), (0.5, 85), (1, 90)])
+def test_a_label_anchor_runs_from_the_lower_end_of_the_bar_through_the_point_to_the_upper(along, y):
+    assert _anchor((1e4, 80, 70, 90), along) == (1e4, pytest.approx(y))
