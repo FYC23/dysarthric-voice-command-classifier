@@ -5,7 +5,7 @@ from **dysarthric speakers it never trained on** with **87% accuracy**. Zero-sho
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
 **about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
 BC-ResNet-2 (27.8k) scores 87.6%, and the smallest width, BC-ResNet-1 (9.5k), still
-reaches 83.5%. A leak-free fine-tuned **HuBERT-large** (316M) is the most accurate model
+reaches 83.5%. A fine-tuned **HuBERT-large** (316M) is the most accurate model
 at **89.2%**; BC-ResNet-2, with **about 11,000× fewer parameters**, is 1.6 points behind,
 a difference the speaker-by-speaker comparison cannot tell apart from zero.
 
@@ -176,20 +176,9 @@ The recipe is fixed in advance and the same for every backbone
 also scored on all 8 dysarthric speakers ("controls only"), to measure what the
 dysarthric stage adds. Details: [docs/ssl-backbones.md](docs/ssl-backbones.md).
 
-### How the evaluation was fixed
+### Evaluation harness
 
-An earlier version of this project fine-tuned HuBERT-large and reported 87% accuracy
-leave-one-speaker-out. A review of that pipeline found two leaks: every fold started
-from a model that had already trained on the held-out speaker, and each fold picked
-its best epoch on that speaker's test clips. The number did not measure generalization
-to new speakers, so it was withdrawn and its outputs deleted. The leak-free HuBERT-large
-above scores 89.2%, but it is not a corrected version of that model: it starts from a
-different checkpoint (the self-supervised `hubert-large-ll60k`, not the ASR-fine-tuned
-`hubert-large-ls960-ft`) and uses a different recipe, so the two numbers say nothing about
-what the leaks were worth.
-
-The evaluation was rebuilt as a shared harness (`src/eval/`) that every model now goes
-through:
+Every trained model's results above come from one shared harness (`src/eval/`):
 - Every run records which speakers each fold trained on, and the harness refuses to
   load a run in which any fold trained on its own held-out speaker.
 - Hyperparameters are fixed in advance, and the last epoch is kept.
@@ -198,7 +187,8 @@ through:
 - Confidence intervals are bootstrapped over speakers.
 - Models are compared speaker by speaker.
 
-The BC-ResNet and HuBERT results above all come from that harness.
+An earlier HuBERT-large result (87%) leaked the held-out speaker into training and epoch
+selection and was withdrawn; it is unrelated to the HuBERT-large model reported here.
 
 ## Supported commands
 
