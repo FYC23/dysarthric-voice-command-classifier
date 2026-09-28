@@ -124,9 +124,9 @@ A Gradio app puts BC-ResNet-2 next to zero-shot Parakeet-TDT-0.6B-v3. Record or 
 one of the 20 commands; both models hear the same 2 s window, and the page shows each
 answer with the model's size and its CPU latency.
 
-![The demo scoring a TORGO clip: BC-ResNet-8 answers "down" at 100% in 130 ms; Parakeet hears "Let's go." and maps it to "no" in 6.7 s](docs/demo.gif)
+![The demo scoring a TORGO clip: BC-ResNet-2 answers "down" at 99% in 119 ms; Parakeet hears "Let's go." and maps it to "no" in 6.8 s](docs/demo.gif)
 
-*TORGO speaker F01 (severe dysarthria) says "down". BC-ResNet-8 is scored with
+*TORGO speaker F01 (severe dysarthria) says "down". BC-ResNet-2 is scored with
 `fold1_F01.pt`, which never trained on F01. Timings on an M2 Pro chip; the wait is sped
 up 4×. One selected example: the Results table above is the evidence.*
 
