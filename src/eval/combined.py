@@ -1,16 +1,20 @@
 """
 One report across steps: zero-shot baselines and trained models on the same
-clips, with every trained model compared speaker by speaker against every
-baseline. Array mic is the top folder; the head mic gets its own subfolder,
-since the two mics are never combined.
+clips, with models compared speaker by speaker in titled groups of pairs, one
+group per question (by default every trained model against every baseline).
+Array mic is the top folder; the head mic gets its own subfolder, since the
+two mics are never combined.
 
 Saved runs live at runs/<model>/seed<k>/eval/ (src.eval.io); a seed without
 eval/run.json is still training and is skipped.
 """
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Mapping, Optional, Sequence
+from typing import Collection, List, Mapping, Optional, Sequence, Tuple
+
+import pandas as pd
 
 from src.eval.aggregate import summarize
 from src.eval.compare import compare
@@ -18,7 +22,7 @@ from src.eval.constants import ARRAY_MIC, HEAD_MIC
 from src.eval.cost import CostProfile
 from src.eval.io import METADATA_FILE, load_run
 from src.eval.plots import plot_accuracy_vs_cost, plot_confusion
-from src.eval.report import comparisons_markdown, comparisons_table, write_report
+from src.eval.report import comparisons_table, grouped_comparisons_markdown, write_report
 from src.eval.schema import EvalValidationError, Run
 
 MIC_DIRS = {ARRAY_MIC: ".", HEAD_MIC: "head-mic"}
@@ -59,33 +63,84 @@ def load_seed_runs(runs_dir: Path, model: str,
     return runs
 
 
+@dataclass(frozen=True)
+class PairGroup:
+    """
+    Paired comparisons that answer one question, e.g. "does dysarthric
+    fine-tuning help?": (candidate, baseline) run names, in report order.
+    A model may be a baseline for one question and a candidate for another,
+    never both within one.
+    """
+    question: str
+    pairs: Tuple[Tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not self.pairs:
+            raise EvalValidationError(f"{self.question}: no pairs to compare")
+        both = sorted({c for c, _ in self.pairs} & {b for _, b in self.pairs})
+        if both:
+            raise EvalValidationError(f"{self.question}: {both} listed as both "
+                                      "baseline and candidate")
+
+
+DEFAULT_QUESTION = "Each candidate vs each baseline"
+
+
+def every_pair(question: str, candidates: Sequence[str], baselines: Sequence[str]) -> PairGroup:
+    """Every candidate against every baseline, candidate-major."""
+    return PairGroup(question, tuple((c, b) for c in candidates for b in baselines))
+
+
+def _check_names(groups: Sequence[PairGroup], off_curve: Collection[str],
+                 known: Collection[str]) -> None:
+    named = {m for g in groups for pair in g.pairs for m in pair} | set(off_curve)
+    unknown = sorted(named - set(known))
+    if unknown:
+        raise EvalValidationError(f"not in the report: {unknown}")
+
+
 def write_combined_report(baselines: Mapping[str, Sequence[Run]],
                           candidates: Mapping[str, Sequence[Run]],
                           costs: Mapping[str, CostProfile], out_dir: Path,
                           secondary: Optional[Mapping[str, float]] = None,
-                          labels: Optional[Mapping[str, str]] = None) -> None:
+                          labels: Optional[Mapping[str, str]] = None,
+                          groups: Optional[Sequence[PairGroup]] = None,
+                          off_curve: Collection[str] = ()) -> None:
     """
-    Per mic: results.csv/.md, per_speaker.csv, accuracy vs MACs and vs params,
-    comparisons.csv/.md (each candidate against each baseline) and a confusion
-    figure per model. `secondary` adds e.g. Speech Commands accuracy to the plots;
+    Per mic: results.csv/.md (baselines, then candidates), per_speaker.csv,
+    accuracy vs MACs and vs params, comparisons.csv/.md and a confusion figure
+    per model. `groups` are the paired comparisons, one titled section each
+    (default: each candidate against each baseline). `off_curve` models stay
+    out of the two cost figures only, e.g. a variant sharing another model's
+    cost. `secondary` adds e.g. Speech Commands accuracy to the cost figures;
     `labels` gives the figures' display names.
     """
     both = sorted(set(baselines) & set(candidates))
     if both:
         raise EvalValidationError(f"listed as both baseline and candidate: {both}")
+    runs = {**baselines, **candidates}
+    if groups is None:
+        groups = [every_pair(DEFAULT_QUESTION, list(candidates), list(baselines))]
+    _check_names(groups, off_curve, runs)
 
     for mic, sub in MIC_DIRS.items():
         mic_dir = Path(out_dir) / sub
-        runs = {**baselines, **candidates}
         summaries = [summarize(r, mic=mic) for r in runs.values()]
-        write_report(summaries, costs, mic_dir, secondary, labels)
-        plot_accuracy_vs_cost(summaries, costs, mic_dir / "accuracy_vs_params.png",
+        write_report(summaries, costs, mic_dir, secondary, labels, off_curve)
+        on_curve = [s for s in summaries if s.model not in off_curve]
+        plot_accuracy_vs_cost(on_curve, costs, mic_dir / "accuracy_vs_params.png",
                               axis="params", secondary=secondary, labels=labels)
         for summary in summaries:
             plot_confusion(summary, mic_dir / f"confusion_{summary.model}.png")
+        _write_comparisons(runs, groups, mic, mic_dir)
 
-        pairs = [compare(baselines[b], candidates[c], mic=mic)
-                 for c in candidates for b in baselines]
-        table = comparisons_table(pairs)
-        table.to_csv(mic_dir / "comparisons.csv", index=False)
-        (mic_dir / "comparisons.md").write_text(comparisons_markdown(table))
+
+def _write_comparisons(runs: Mapping[str, Sequence[Run]], groups: Sequence[PairGroup],
+                       mic: str, mic_dir: Path) -> None:
+    """comparisons.csv (a question column naming each row's group) and comparisons.md."""
+    tables = [comparisons_table([compare(runs[b], runs[c], mic=mic) for c, b in g.pairs])
+              .assign(question=g.question) for g in groups]
+    table = pd.concat(tables, ignore_index=True)
+    table = table[["question"] + [c for c in table.columns if c != "question"]]
+    table.to_csv(mic_dir / "comparisons.csv", index=False)
+    (mic_dir / "comparisons.md").write_text(grouped_comparisons_markdown(table))

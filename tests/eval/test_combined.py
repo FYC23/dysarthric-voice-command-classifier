@@ -3,7 +3,9 @@
 import pandas as pd
 import pytest
 
-from src.eval.combined import load_seed_runs, write_combined_report
+from src.eval.combined import (
+    DEFAULT_QUESTION, PairGroup, every_pair, load_seed_runs, write_combined_report,
+)
 from src.eval.constants import ARRAY_MIC, HEAD_MIC
 from src.eval.cost import CostProfile
 from src.eval.io import save_run
@@ -112,3 +114,70 @@ def test_a_model_listed_as_both_baseline_and_candidate_is_rejected(tmp_path):
     runs = [asr_run({})]
     with pytest.raises(ValueError, match="asr"):
         write_combined_report({"asr": runs}, {"asr": runs}, COSTS, tmp_path)
+
+
+def test_the_default_question_is_each_candidate_against_each_baseline(tmp_path):
+    table = pd.read_csv(report(tmp_path) / "comparisons.csv")
+    assert table["question"].tolist() == [DEFAULT_QUESTION] * 2
+
+
+def grouped_report(tmp_path, groups, off_curve=()):
+    out = tmp_path / "report"
+    baselines = {"asr": [asr_run({s: 5 for s in ALL_DYSARTHRIC})]}
+    candidates = {m: [trained_run(m, i, {s: k for s in ALL_DYSARTHRIC}) for i in range(3)]
+                  for m, k in (("kws-a", 7), ("kws-b", 8))}
+    write_combined_report(baselines, candidates, COSTS, out, groups=groups,
+                          off_curve=off_curve)
+    return out
+
+
+def test_comparisons_answer_each_titled_question_in_order(tmp_path):
+    groups = [every_pair("Trained vs ASR", ["kws-a", "kws-b"], ["asr"]),
+              PairGroup("Small vs large", (("kws-a", "kws-b"),))]
+    out = grouped_report(tmp_path, groups)
+    table = pd.read_csv(out / "comparisons.csv")
+    assert table.columns[0] == "question"
+    assert list(zip(table["question"], table["candidate"], table["baseline"])) == [
+        ("Trained vs ASR", "kws-a", "asr"), ("Trained vs ASR", "kws-b", "asr"),
+        ("Small vs large", "kws-a", "kws-b")]
+    assert table["mean_diff"].tolist() == pytest.approx([0.2, 0.3, -0.1])
+    md = (out / "comparisons.md").read_text()
+    assert md.index("## Trained vs ASR") < md.index("## Small vs large")
+    assert md.count("| Candidate |") == 2
+
+
+def test_a_model_cannot_be_both_sides_of_one_question():
+    with pytest.raises(ValueError, match="kws-a"):
+        PairGroup("Mixed", (("kws-a", "kws-b"), ("kws-b", "kws-a")))
+    with pytest.raises(ValueError, match="kws-a"):
+        PairGroup("Self", (("kws-a", "kws-a"),))
+
+
+def test_a_question_needs_at_least_one_pair():
+    with pytest.raises(ValueError, match="Empty"):
+        PairGroup("Empty", ())
+
+
+def test_a_pair_naming_a_model_outside_the_report_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="kws-z"):
+        grouped_report(tmp_path, [PairGroup("Typo", (("kws-z", "asr"),))])
+
+
+def test_off_curve_models_are_left_off_the_cost_figures_only(tmp_path, monkeypatch):
+    plotted = []
+
+    def record(summaries, costs, path, axis="macs", *args, **kwargs):
+        plotted.append((axis, [s.model for s in summaries]))
+
+    monkeypatch.setattr("src.eval.plots.plot_accuracy_vs_cost", record)
+    monkeypatch.setattr("src.eval.combined.plot_accuracy_vs_cost", record)
+    out = grouped_report(tmp_path, [every_pair("All", ["kws-a", "kws-b"], ["asr"])],
+                         off_curve=["kws-b"])
+    assert sorted(plotted) == [("macs", ["asr", "kws-a"])] * 2 + [("params", ["asr", "kws-a"])] * 2
+    assert "kws-b" in pd.read_csv(out / "results.csv")["model"].tolist()
+    assert (out / "confusion_kws-b.png").stat().st_size > 0
+
+
+def test_an_unknown_off_curve_model_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="kws-z"):
+        grouped_report(tmp_path, None, off_curve=["kws-z"])

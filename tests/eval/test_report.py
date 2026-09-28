@@ -2,12 +2,15 @@
 
 import pandas as pd
 import pytest
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from src.eval.aggregate import summarize
 from src.eval.constants import HEAD_MIC
 from src.eval.cost import CostProfile
 from src.eval.compare import compare
-from src.eval.plots import plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion
+from src.eval.plots import (
+    _label_rows, plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion,
+)
 from src.eval.report import (
     comparisons_markdown, comparisons_table, human_count, per_speaker_table, results_table,
     to_markdown, write_report,
@@ -190,3 +193,27 @@ def test_a_model_with_zero_cost_does_not_break_the_log_axis_figure(tmp_path):
     path = tmp_path / "x.png"
     plot_accuracy_vs_cost([summary("bcresnet1", 6), summary("free", 3)], costs, path)
     assert path.stat().st_size > 0
+
+
+def test_label_rows_push_a_label_down_until_it_clears_the_labels_before_it():
+    boxes = [(0, 0, 10, 5),     # row 0
+             (5, 0, 15, 5),     # hits the first -> row 1
+             (8, 0, 18, 5),     # hits the first on row 0 and the second on row 1 -> row 2
+             (20, 0, 30, 5),    # clear of everything -> row 0
+             (12, -20, 14, -15)]  # already below the others -> row 0
+    assert _label_rows(boxes, row_height=6) == [0, 1, 2, 0, 0]
+
+
+def test_many_models_close_together_get_labels_that_do_not_overlap(tmp_path):
+    names = [f"a-long-model-name-{i}" for i in range(5)]
+    costs = {m: CostProfile(params=int(2.4e7 * 1.3 ** i), macs=int(7e9 * 1.2 ** i),
+                            input_seconds=2.0) for i, m in enumerate(names)}
+    for axis in ("params", "macs"):
+        fig = plot_accuracy_vs_cost([summary(m, 7) for m in names], costs,
+                                    tmp_path / "x.png", axis=axis)
+        texts = fig.axes[0].texts
+        renderer = FigureCanvasAgg(fig).get_renderer()  # at the figure's own dpi
+        boxes = [t.get_window_extent(renderer) for t in texts]
+        assert len(boxes) == len(names)
+        assert len({t.xyann for t in texts}) > 1  # crowded enough to need more than one row
+        assert not any(a.overlaps(b) for i, a in enumerate(boxes) for b in boxes[i + 1:])

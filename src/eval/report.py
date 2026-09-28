@@ -5,7 +5,7 @@ layout of the BC-ResNet paper's Tables 2-3 plus our uncertainty columns.
 
 import math
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Collection, Mapping, Optional, Sequence
 
 import pandas as pd
 
@@ -94,6 +94,12 @@ def comparisons_markdown(table: pd.DataFrame) -> str:
     return "\n".join(lines) + "\n"
 
 
+def grouped_comparisons_markdown(table: pd.DataFrame) -> str:
+    """A comparisons table with a question column: one "## question" section each, in order."""
+    return "\n".join(f"## {q}\n\n" + comparisons_markdown(table[table["question"] == q])
+                     for q in dict.fromkeys(table["question"]))
+
+
 def _pct(x: float) -> str:
     return MISSING if pd.isna(x) else f"{100 * x:.1f}"
 
@@ -117,13 +123,17 @@ def to_markdown(table: pd.DataFrame) -> str:
 
 def write_report(summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
                  out_dir: Path, secondary: Optional[Mapping[str, float]] = None,
-                 labels: Optional[Mapping[str, str]] = None) -> None:
-    """results.csv / .md, per_speaker.csv and the accuracy-vs-MACs figure."""
+                 labels: Optional[Mapping[str, str]] = None,
+                 off_curve: Collection[str] = ()) -> None:
+    """
+    results.csv / .md, per_speaker.csv and the accuracy-vs-MACs figure, which
+    leaves out the `off_curve` models.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     table = results_table(summaries, costs)
     table.to_csv(out_dir / "results.csv", index=False)
     (out_dir / "results.md").write_text(to_markdown(table))
     per_speaker_table(summaries).to_csv(out_dir / "per_speaker.csv")
-    plot_accuracy_vs_macs(summaries, costs, out_dir / "accuracy_vs_macs.png", secondary,
-                          labels=labels)
+    plot_accuracy_vs_macs([s for s in summaries if s.model not in off_curve], costs,
+                          out_dir / "accuracy_vs_macs.png", secondary, labels=labels)

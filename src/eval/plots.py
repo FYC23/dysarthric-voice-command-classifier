@@ -9,7 +9,7 @@ colour-blind safe as a pair) and its blue sequential ramp.
 
 import math
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import List, Mapping, Optional, Sequence, Tuple
 
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
@@ -29,6 +29,8 @@ SEQUENTIAL = (SURFACE, "#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b")
 DPI = 200
 
 LABEL_NEIGHBOURHOOD_DECADES = 1.0  # models this close on the log x axis share label rows
+LABEL_GAP_PT = 6   # between a label and the error bar it hangs from
+LABEL_ROW_PT = 12  # one row of 8 pt labels
 
 # Cost axis: (x-axis label, title)
 COST_AXES = {
@@ -69,17 +71,66 @@ def _label_anchors(xs: Sequence[float], lows: Sequence[float]) -> list:
             for i, low in enumerate(lows)]
 
 
+def _label_rows(boxes: Sequence[Tuple[float, float, float, float]],
+                row_height: float) -> List[int]:
+    """
+    Row for each label box (x0, y0, x1, y1, display units, y up), in the given
+    order: the first row, counting down, where the box shifted down by
+    row x `row_height` clears every box placed before it.
+    """
+    placed: List[Tuple[float, float, float, float]] = []
+    rows = []
+    for x0, y0, x1, y1 in boxes:
+        row = 0
+        while any(x0 < px1 and px0 < x1 and y0 - row * row_height < py1
+                  and py0 < y1 - row * row_height for px0, py0, px1, py1 in placed):
+            row += 1
+        placed.append((x0, y0 - row * row_height, x1, y1 - row * row_height))
+        rows.append(row)
+    return rows
+
+
+def _stack_labels(fig: Figure, texts: Sequence) -> None:
+    """Move each label (in x order) down as many rows as it needs to overlap none before it."""
+    boxes = [tuple(t.get_window_extent().extents) for t in texts]
+    rows = _label_rows(boxes, LABEL_ROW_PT * fig.dpi / 72)
+    for text, row in zip(texts, rows):
+        text.xyann = (0, -LABEL_GAP_PT - LABEL_ROW_PT * row)
+
+
+def _plot_points(ax, summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
+                 axis: str, labels: Mapping[str, str]) -> list:
+    """Each model's accuracy and CI at its cost, labelled; returns the labels in x order."""
+    ordered = sorted(summaries, key=lambda s: getattr(costs[s.model], axis))
+    anchors = _label_anchors([getattr(costs[s.model], axis) for s in ordered],
+                             [100 * s.ci_low for s in ordered])
+    texts = []
+    for i, s in enumerate(ordered):
+        x, y = getattr(costs[s.model], axis), 100 * s.headline
+        err = [[y - 100 * s.ci_low], [100 * s.ci_high - y]]
+        ax.errorbar(x, y, yerr=err, fmt="o", color=SERIES_1, ms=8, mec=SURFACE, mew=2,
+                    elinewidth=1.2, capsize=3, zorder=3,
+                    label="TORGO dysarthric (95% CI over speakers)" if i == 0 else None)
+        # Under the error bar (Speech Commands markers sit above); _stack_labels
+        # then moves labels of nearby models onto separate rows
+        texts.append(ax.annotate(labels.get(s.model, s.model), (x, anchors[i]),
+                                 xytext=(0, -LABEL_GAP_PT), textcoords="offset points",
+                                 ha="center", va="top", fontsize=8, color=TEXT_SECONDARY))
+    return texts
+
+
 def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str, CostProfile],
                           path: Path, axis: str = "macs",
                           secondary: Optional[Mapping[str, float]] = None,
                           secondary_label: str = "Speech Commands v2 (typical speech)",
-                          labels: Optional[Mapping[str, str]] = None) -> None:
+                          labels: Optional[Mapping[str, str]] = None) -> Figure:
     """
     One point per model: speaker-averaged dysarthric accuracy against a cost
     (`axis`: "macs" or "params", log x), with the speaker-bootstrap 95% CI as
     error bars. `secondary` optionally adds each model's accuracy on another
     dataset, to show whether the size gap grows on dysarthric speech. `labels`
     maps model names to the names shown on the figure (default: the model name).
+    Returns the saved figure.
     """
     if axis not in COST_AXES:
         raise ValueError(f"unknown cost axis {axis!r}; choose from {sorted(COST_AXES)}")
@@ -92,20 +143,7 @@ def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str,
     fig = Figure(figsize=(8, 4.5), facecolor=SURFACE)
     ax = fig.add_subplot()
     _style(ax)
-    ordered = sorted(summaries, key=lambda s: getattr(costs[s.model], axis))
-    anchors = _label_anchors([getattr(costs[s.model], axis) for s in ordered],
-                             [100 * s.ci_low for s in ordered])
-    for i, s in enumerate(ordered):
-        x, y = getattr(costs[s.model], axis), 100 * s.headline
-        err = [[y - 100 * s.ci_low], [100 * s.ci_high - y]]
-        ax.errorbar(x, y, yerr=err, fmt="o", color=SERIES_1, ms=8, mec=SURFACE, mew=2,
-                    elinewidth=1.2, capsize=3, zorder=3,
-                    label="TORGO dysarthric (95% CI over speakers)" if i == 0 else None)
-        # Under the error bar (Speech Commands markers sit above), neighbours on
-        # alternating rows so labels of nearby models never overlap
-        ax.annotate(labels.get(s.model, s.model), (x, anchors[i]),
-                    xytext=(0, -6 - 12 * (i % 2)), textcoords="offset points",
-                    ha="center", va="top", fontsize=8, color=TEXT_SECONDARY)
+    texts = _plot_points(ax, summaries, costs, axis, labels)
     if secondary:
         pts = [(getattr(costs[m], axis), 100 * acc) for m, acc in secondary.items()
                if m in costs]
@@ -125,7 +163,9 @@ def plot_accuracy_vs_cost(summaries: Sequence[ModelSummary], costs: Mapping[str,
     ax.set_ylabel(f"Speaker-averaged accuracy (%), {mic}", color=TEXT, fontsize=9)
     ax.set_title(title, color=TEXT, fontsize=11, loc="left")
     fig.tight_layout()
+    _stack_labels(fig, texts)
     fig.savefig(path, dpi=DPI)
+    return fig
 
 
 def plot_confusion(summary: ModelSummary, path: Path) -> None:
