@@ -3,7 +3,7 @@
 Assemble the Hugging Face Space bundle for the Gradio demo (app.py).
 
 Writes build/hf_space/: app.py, the src/ modules the demo imports, the
-BC-ResNet-8 deploy model as weights/bcresnet-8.pt, the results table, a
+BC-ResNet-2 deploy model as weights/bcresnet-2.pt, the results table, a
 pinned requirements.txt and the Space README. It never uploads; push the
 folder yourself:
 
@@ -11,7 +11,7 @@ folder yourself:
 
 Usage:
     python scripts/build_hf_space.py
-    python scripts/build_hf_space.py --checkpoint runs/bcresnet-8/seed0/deploy.pt --out build/hf_space
+    python scripts/build_hf_space.py --checkpoint runs/bcresnet-2/seed0/deploy.pt --out build/hf_space
 """
 
 import argparse
@@ -25,12 +25,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.demo.kws import KeywordSpotter  # noqa: E402
+from src.demo.results_table import KWS_NAME, KWS_RUN  # noqa: E402
 
-DEFAULT_CHECKPOINT = REPO_ROOT / "runs" / "bcresnet-8" / "seed0" / "deploy.pt"
+DEFAULT_CHECKPOINT = REPO_ROOT / "runs" / KWS_RUN / "seed0" / "deploy.pt"
 DEFAULT_OUT = REPO_ROOT / "build" / "hf_space"
 DEPLOY_NAME = "deploy.pt"
-SPACE_TAU = 8.0
-WEIGHTS = "weights/bcresnet-8.pt"
+SPACE_TAU = 2.0
+WEIGHTS = f"weights/{KWS_RUN}.pt"
 MARKER = ".hf_space_bundle"
 # Everything app.py imports, directly or not. tests/test_build_hf_space.py
 # imports the demo from a built bundle, so a missing module fails that test.
@@ -101,7 +102,7 @@ short_description: Tiny keyword spotter vs zero-shot ASR on dysarthric speech
 Say one of 20 commands (the digits zero to nine; yes, no, up, down, left, right,
 forward, back, select, menu). Two models hear the same 2 s clip:
 
-- **BC-ResNet-8**, a small keyword-spotting network pretrained on Speech Commands and
+- **{KWS_NAME}**, a small keyword-spotting network pretrained on Speech Commands and
   fine-tuned on TORGO speakers with dysarthria.
 - **Parakeet-TDT-0.6B-v3**, an off-the-shelf speech recogniser, zero-shot; its
   transcript is mapped to the nearest command.

@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 """
-Live demo: BC-ResNet-8 against zero-shot Parakeet-TDT-0.6B-v3 on the same
+Live demo: BC-ResNet-2 against zero-shot Parakeet-TDT-0.6B-v3 on the same
 2 s window, with each model's size and CPU latency.
 
 Usage:
-    python app.py                                   # BC-ResNet-8 deploy model + Parakeet
+    python app.py                                   # BC-ResNet-2 deploy model + Parakeet
     python app.py --no-asr                          # BC-ResNet only, starts in seconds
-    python app.py --checkpoint runs/bcresnet-8/seed0/fold1_F01.pt   # score F01's clips held out
+    python app.py --checkpoint runs/bcresnet-2/seed0/fold1_F01.pt   # score F01's clips held out
 
 The Hugging Face Space runs this file from the bundle scripts/build_hf_space.py
-writes, with the deploy model at weights/bcresnet-8.pt.
+writes, with the deploy model at weights/bcresnet-2.pt.
 """
 
 import argparse
@@ -26,11 +26,11 @@ from src.config import Config
 from src.demo.audio_input import AudioInputError
 from src.demo.handler import AsrAnswer, DemoResult, recognize
 from src.demo.kws import KeywordSpotter
-from src.demo.results_table import DemoResults, ModelCost, load_results
+from src.demo.results_table import KWS_NAME, KWS_RUN, DemoResults, ModelCost, load_results
 
 APP_DIR = Path(__file__).resolve().parent
-SPACE_CHECKPOINT = APP_DIR / "weights" / "bcresnet-8.pt"
-LOCAL_CHECKPOINT = APP_DIR / "runs" / "bcresnet-8" / "seed0" / "deploy.pt"
+SPACE_CHECKPOINT = APP_DIR / "weights" / f"{KWS_RUN}.pt"
+LOCAL_CHECKPOINT = APP_DIR / "runs" / KWS_RUN / "seed0" / "deploy.pt"
 ASR_NAME = "parakeet-tdt-0.6b-v3"
 GITHUB_URL = "https://github.com/FYC23/dysarthric-voice-command-classifier"
 TOP_K = 5
@@ -64,7 +64,7 @@ def resolve_checkpoint(arg: Optional[str]) -> Path:
 def header_markdown(results: DemoResults) -> str:
     return (
         "# Dysarthric voice commands: a tiny keyword spotter against zero-shot ASR\n\n"
-        f"**BC-ResNet-8** ({results.kws_cost.params} parameters) is fine-tuned to recognise 20 "
+        f"**{KWS_NAME}** ({results.kws_cost.params} parameters) is fine-tuned to recognise 20 "
         "commands from speakers with dysarthria. **Parakeet-TDT-0.6B-v3** "
         f"({results.asr_cost.params} parameters) is an off-the-shelf speech recogniser; its "
         "transcript is mapped to the nearest command. Both hear the same 2 s clip.\n\n"
@@ -124,7 +124,7 @@ def create_app(handle: Callable, results: DemoResults) -> gr.Blocks:
         notice = gr.Markdown()
         with gr.Row():
             with gr.Column():
-                gr.Markdown("### BC-ResNet-8")
+                gr.Markdown(f"### {KWS_NAME}")
                 label = gr.Label(num_top_classes=TOP_K, label=f"Top {TOP_K}")
                 kws_md = gr.Markdown()
             with gr.Column():
@@ -151,10 +151,10 @@ def load_asr(device: torch.device):
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="BC-ResNet-8 vs zero-shot Parakeet demo")
+    parser = argparse.ArgumentParser(description=f"{KWS_NAME} vs zero-shot Parakeet demo")
     parser.add_argument("--checkpoint", help="BC-ResNet fine-tuning checkpoint (default: "
-                        "weights/bcresnet-8.pt in the Space bundle, else "
-                        "runs/bcresnet-8/seed0/deploy.pt)")
+                        f"weights/{KWS_RUN}.pt in the Space bundle, else "
+                        f"runs/{KWS_RUN}/seed0/deploy.pt)")
     parser.add_argument("--no-asr", action="store_true", help="skip loading Parakeet")
     parser.add_argument("--device", default="cpu", help="cpu (default), cuda or mps")
     parser.add_argument("--port", type=int, default=None)

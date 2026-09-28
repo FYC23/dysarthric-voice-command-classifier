@@ -15,13 +15,14 @@ from src.eval.constants import HEADLINE_MIC
 from src.eval.units import human_count
 
 RESULTS_CSV = Config.OUTPUT_DIR / "results" / "results.csv"
-KWS_RUN = "bcresnet-8"
+KWS_RUN = "bcresnet-2"
+KWS_NAME = "BC-ResNet-2"
 ASR_RUN = "parakeet-tdt-0.6b-v3-lenient"
 # (run name in results.csv, name on the page), in table order
 TABLE_ROWS = (
     ("whisper-large-v3-lenient", "Whisper large-v3 (zero-shot)"),
     (ASR_RUN, "Parakeet-TDT-0.6B-v3 (zero-shot)"),
-    (KWS_RUN, "BC-ResNet-8"),
+    (KWS_RUN, KWS_NAME),
 )
 NUMERIC_COLUMNS = ("accuracy", "ci_low", "ci_high", "severe", "mild", "params", "macs")
 REQUIRED_COLUMNS = ("model", "mic") + NUMERIC_COLUMNS
@@ -30,8 +31,8 @@ HEADER = ("Model", "Params", "MACs / 2 s", "Accuracy", "95% CI", "Severe", "Mild
 
 @dataclass(frozen=True)
 class ModelCost:
-    params: str  # e.g. "323k"
-    macs: str    # per 2 s window, e.g. "171M"
+    params: str  # e.g. "27.8k"
+    macs: str    # per 2 s window, e.g. "14.6M"
 
 
 @dataclass(frozen=True)

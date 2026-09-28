@@ -12,7 +12,7 @@ from src.demo.handler import AsrAnswer
 from src.demo.results_table import DemoResults, ModelCost
 from tests.conftest import word_clip
 
-RESULTS = DemoResults(table_markdown="| t |\n", kws_cost=ModelCost("323k", "171M"),
+RESULTS = DemoResults(table_markdown="| t |\n", kws_cost=ModelCost("27.8k", "14.6M"),
                       asr_cost=ModelCost("627M", "16.7G"))
 PROBS = {"four": 0.9, "zero": 0.1}
 
@@ -32,7 +32,7 @@ def handler(asr=StubAsr(), asr_error=None):
 
 
 def test_default_checkpoint_prefers_the_space_bundle(tmp_path, monkeypatch):
-    space, local = tmp_path / "weights" / "bcresnet-8.pt", tmp_path / "deploy.pt"
+    space, local = tmp_path / "weights" / "bcresnet-2.pt", tmp_path / "deploy.pt"
     space.parent.mkdir()
     space.write_bytes(b"x")
     local.write_bytes(b"x")
@@ -64,7 +64,7 @@ def test_header_lists_all_twenty_commands_and_the_closed_set():
     header = app.header_markdown(RESULTS)
     for word in Config.TARGET_COMMANDS:
         assert word in header
-    assert "323k" in header and "627M" in header
+    assert "BC-ResNet-2" in header and "27.8k" in header and "627M" in header
     assert "always picks one of the 20" in header
 
 
@@ -85,7 +85,7 @@ def test_happy_path_renders_both_panels():
     assert heard[0] == Config.SAMPLE_RATE and heard[1].shape == (Config.MAX_AUDIO_SAMPLES,)
     assert notice == ""
     assert label == PROBS
-    assert kws_md == "323k params · 171M MACs · 2 ms (CPU)"
+    assert kws_md == "27.8k params · 14.6M MACs · 2 ms (CPU)"
     assert "“for”" in asr_md and "→ four" in asr_md and "627M params · 16.7G MACs" in asr_md
 
 

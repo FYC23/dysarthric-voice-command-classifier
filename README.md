@@ -1,12 +1,12 @@
 # Dysarthric Voice Command Classifier
 
-A **323k-parameter keyword spotter** (BC-ResNet-8) recognizes 20 voice commands
-from **dysarthric speakers it never trained on** with **87% accuracy**. Zero-shot
+A **28k-parameter keyword spotter** (BC-ResNet-2) recognizes 20 voice commands
+from **dysarthric speakers it never trained on** with **88% accuracy**. Zero-shot
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
-**about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
-BC-ResNet-2 (27.8k) scores 87.7%, and the smallest width, BC-ResNet-1 (9.5k), still
-reaches 84.0%. A fine-tuned **HuBERT-large** (316M) is the most accurate model
-at **89.2%**. On the array microphone, BC-ResNet-2, with **about 11,400× fewer
+**about 22,500× more parameters**. Beyond about 28k parameters, width stops helping:
+BC-ResNet-8, 12× larger (323k), scores 86.5%, and the smallest width, BC-ResNet-1
+(9.5k), still reaches 84.0%. A fine-tuned **HuBERT-large** (316M) is the most accurate
+model at **89.2%**. On the array microphone, BC-ResNet-2, with **about 11,400× fewer
 parameters**, is 1.5 points behind, a difference the speaker-by-speaker comparison
 cannot tell apart from zero.
 
@@ -34,23 +34,31 @@ DistilHuBERT) is the mean of 3 seeds, ± their standard deviation.
 | Whisper large-v3 (zero-shot) | 1.54B | 1.3T | 66.3% | — | [53.6, 80.2] | 54.1% | 89.7% |
 | Parakeet-TDT-0.6B-v3 (zero-shot) | 627M | 16.7G | 70.6% | — | [59.0, 83.8] | 56.2% | 91.2% |
 | BC-ResNet-1 | 9.5k | 4.9M | 84.0% | 1.1 | [77.2, 90.8] | 80.0% | 91.4% |
-| BC-ResNet-2 | 27.8k | 14.6M | 87.7% | 0.6 | [83.4, 92.3] | 84.8% | 92.5% |
+| **BC-ResNet-2** (demo) | **27.8k** | **14.6M** | **87.7%** | 0.6 | [83.4, 92.3] | 84.8% | 92.5% |
 | BC-ResNet-3 | 54.9k | 28.9M | 87.3% | 0.6 | [81.5, 93.8] | 84.4% | 93.2% |
-| **BC-ResNet-8** (demo) | **323k** | **171M** | **86.5%** | 1.9 | [81.0, 92.5] | 79.8% | 95.8% |
+| BC-ResNet-8 | 323k | 171M | 86.5% | 1.9 | [81.0, 92.5] | 79.8% | 95.8% |
 | DistilHuBERT | 23.9M | 6.9G | 79.9% | 4.5 | [73.5, 85.9] | 75.6% | 86.3% |
 | HuBERT-base | 94.8M | 14.0G | 81.1% | 1.3 | [70.7, 89.9] | 77.9% | 90.2% |
 | HuBERT-large | 316M | 36.2G | 89.2% | 0.4 | [85.2, 93.1] | 85.5% | 95.6% |
 
-- **Speaker by speaker**, BC-ResNet-8 beats Parakeet on 6 of 8 speakers and ties on the
-  other 2 (two mild speakers at 100%). Mean gain: **+15.8 points** [+8.7, +23.0]. It
-  beats Whisper on all 8 speakers (+20.2 points).
+- **Speaker by speaker**, BC-ResNet-2 beats Parakeet on 6 of 8 speakers. Mean gain:
+  **+17.1 points** [+7.5, +27.0]. The 2 it trails are mild speakers on whom Parakeet
+  is already at 100% (F04: 98.8%, M03: 96.3%). It beats Whisper on 7 speakers and ties
+  on the eighth (+21.4 points).
 - **The gain is largest where ASR fails:** on the four severe speakers, the four widths
   score 80–85% against 56% for Parakeet and 54% for Whisper.
 - **Width pays on typical speech, not on dysarthric speech.** On Speech Commands v2
   (35 words + silence, 2 s window, before TORGO fine-tuning) accuracy rises from 95.3%
   (BC-ResNet-1) to 98.2% (BC-ResNet-8). On TORGO, BC-ResNet-2, -3 and -8 are within
   1.2 points of each other, less than the 3.7 points between BC-ResNet-8's best and
-  worst seeds.
+  worst seeds. Speaker by speaker, BC-ResNet-2 is +1.2 points [−1.7, +4.4] ahead of
+  BC-ResNet-8 (better on 4 speakers, worse on 3): equal accuracy at 1/12 the size.
+- **What width does buy is robustness on easy speakers and unseen words.** BC-ResNet-8
+  never trails Parakeet (better on 6 speakers, tied on 2 mild speakers at 100%, a
+  +15.8-point mean gain [+8.7, +23.0]). It beats BC-ResNet-2 on the 3 mild speakers
+  (95.8% against 92.5%) and on back, select and menu, the 3 commands missing from
+  Speech Commands (81.0% against 74.6%, though that is only 21 clips). BC-ResNet-2 is
+  ahead on the 4 severe speakers (84.8% against 79.8%).
 - **HuBERT-large is the most accurate model, but not by much.** Speaker by speaker,
   BC-ResNet-2 is 1.5 points behind it [−5.1, +1.6] (better on 4 speakers, worse on 3)
   and BC-ResNet-8 2.8 points [−6.8, +1.0] (better on 3, worse on 4). Only the smallest
@@ -72,7 +80,7 @@ DistilHuBERT) is the mean of 3 seeds, ± their standard deviation.
   | HuBERT-large | 85.8% | 89.2% | +3.4 | [+1.6, +5.4] |
 
 - **On the head-mounted microphone**, every BC-ResNet width still beats both ASR models:
-  87.5–91.0% (BC-ResNet-8: 90.2%), against 75.4% for Whisper and 53.3% for Parakeet.
+  87.5–91.0% (BC-ResNet-2: 90.7%), against 75.4% for Whisper and 53.3% for Parakeet.
   HuBERT-large scores 93.4%, and its lead is larger than on the array mic: BC-ResNet-2
   is −2.6 points [−5.9, +0.2] (better on 2 speakers, worse on 4), BC-ResNet-3 −2.4
   [−6.4, +1.3] and BC-ResNet-8 −3.1 [−6.7, +0.1], intervals that only just include
@@ -112,7 +120,7 @@ report in [`outputs/step1-asr/`](outputs/step1-asr/).
 
 ## Demo
 
-A Gradio app puts BC-ResNet-8 next to zero-shot Parakeet-TDT-0.6B-v3. Record or upload
+A Gradio app puts BC-ResNet-2 next to zero-shot Parakeet-TDT-0.6B-v3. Record or upload
 one of the 20 commands; both models hear the same 2 s window, and the page shows each
 answer with the model's size and its CPU latency.
 
@@ -123,7 +131,7 @@ answer with the model's size and its CPU latency.
 up 4×. One selected example: the Results table above is the evidence.*
 
 ```bash
-python app.py              # BC-ResNet-8 (runs/bcresnet-8/seed0/deploy.pt) + Parakeet
+python app.py              # BC-ResNet-2 (runs/bcresnet-2/seed0/deploy.pt) + Parakeet
 python app.py --no-asr     # BC-ResNet only; starts in seconds
 ```
 
@@ -133,7 +141,7 @@ TORGO clip (for example in a screen recording), load the fold checkpoint that he
 speaker out:
 
 ```bash
-python app.py --checkpoint runs/bcresnet-8/seed0/fold1_F01.pt   # then upload an F01 clip
+python app.py --checkpoint runs/bcresnet-2/seed0/fold1_F01.pt   # then upload an F01 clip
 ```
 
 Folds: `fold1_F01`, `fold2_F03`, `fold3_F04`, `fold4_M01`, `fold5_M02`, `fold6_M03`,
@@ -249,8 +257,8 @@ Three stages per width τ ∈ {1, 2, 3, 8} and seed. The first run caches the ex
 Speech Commands words in `data/cache/speech_commands_words/`.
 
 ```bash
-python scripts/pretrain_bcresnet.py --tau 8 --seed 0            # stage 1 (add --resume to continue)
-python scripts/finetune_bcresnet.py --tau 8 --seed 0            # stages 2-3
+python scripts/pretrain_bcresnet.py --tau 2 --seed 0            # stage 1 (add --resume to continue)
+python scripts/finetune_bcresnet.py --tau 2 --seed 0            # stages 2-3
 ```
 
 Or train every width and seed in one go (one GPU; safe to re-run, it skips finished

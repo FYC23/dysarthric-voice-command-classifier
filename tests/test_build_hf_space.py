@@ -30,7 +30,7 @@ def script():
 @pytest.fixture
 def deploy(tmp_path):
     (tmp_path / "run").mkdir()
-    return save_checkpoint(tmp_path / "run" / "deploy.pt", tau=8.0)
+    return save_checkpoint(tmp_path / "run" / "deploy.pt", tau=2.0)
 
 
 def test_bundle_has_every_file(script, tmp_path, deploy):
@@ -51,9 +51,9 @@ def test_fold_checkpoint_is_refused(script, tmp_path, deploy):
 
 def test_other_width_is_refused(script, tmp_path):
     (tmp_path / "run").mkdir()
-    small = save_checkpoint(tmp_path / "run" / "deploy.pt", tau=1.0)
-    with pytest.raises(ValueError, match="BC-ResNet-1"):
-        script.build(tmp_path / "space", small)
+    wide = save_checkpoint(tmp_path / "run" / "deploy.pt", tau=8.0)
+    with pytest.raises(ValueError, match="BC-ResNet-8"):
+        script.build(tmp_path / "space", wide)
 
 
 def test_existing_folder_that_is_not_a_bundle_is_left_alone(script, tmp_path, deploy):
@@ -85,6 +85,7 @@ def test_space_readme_header(script):
     assert f"sdk_version: {metadata.version('gradio')}\n" in readme
     assert "app_file: app.py\n" in readme
     assert "Rudzicz" in readme and "non-commercial" in readme
+    assert "BC-ResNet-2" in readme and "BC-ResNet-8" not in readme
 
 
 def test_bundle_runs_on_its_own(script, tmp_path, deploy):
@@ -95,7 +96,7 @@ def test_bundle_runs_on_its_own(script, tmp_path, deploy):
         "assert pathlib.Path(src.__file__).resolve().parent.parent == pathlib.Path.cwd().resolve()\n"
         "assert app.default_checkpoint() == app.SPACE_CHECKPOINT\n"
         "from src.demo.kws import KeywordSpotter\n"
-        "assert KeywordSpotter.from_checkpoint(app.SPACE_CHECKPOINT).tau == 8.0\n"
+        "assert KeywordSpotter.from_checkpoint(app.SPACE_CHECKPOINT).tau == 2.0\n"
         "from src.demo.results_table import load_results\n"
         "load_results()\n"
         "import src.baselines.asr.transcribers\n"

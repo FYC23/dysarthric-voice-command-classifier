@@ -13,7 +13,7 @@ from src.model.bcresnet import BCResNet
 from src.training.loso import TORGO_CLASSES
 from tests.demo_factories import save_checkpoint
 
-DEPLOY = Path(Config.RUNS_DIR) / "bcresnet-8" / "seed0" / "deploy.pt"
+DEPLOY = Path(Config.RUNS_DIR) / "bcresnet-2" / "seed0" / "deploy.pt"
 SILENCE = np.zeros(Config.MAX_AUDIO_SAMPLES, dtype=np.float32)
 
 
@@ -90,9 +90,9 @@ def test_two_dimensional_input_is_refused(tmp_path):
         kws.predict(np.zeros((2, 100), dtype=np.float32))
 
 
-@pytest.mark.skipif(not DEPLOY.is_file(), reason="needs the trained BC-ResNet-8 deploy model")
+@pytest.mark.skipif(not DEPLOY.is_file(), reason="needs the trained BC-ResNet-2 deploy model")
 def test_real_deploy_checkpoint_loads():
     kws = KeywordSpotter.from_checkpoint(DEPLOY)
-    assert kws.tau == 8.0
+    assert kws.tau == 2.0
     probs, _ = kws.predict(SILENCE)
     assert sum(probs.values()) == pytest.approx(1.0, abs=1e-5)
