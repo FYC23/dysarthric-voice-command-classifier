@@ -1,12 +1,12 @@
 question,candidate,baseline,mic,n_better,n_worse,n_tied,mean_diff,ci_low,ci_high
-Trained models vs zero-shot ASR,bcresnet-1,whisper-large-v3-lenient,wav_arrayMic,6,1,1,0.1724009205131328,0.06596587561655103,0.2884933574879227
-Trained models vs zero-shot ASR,bcresnet-1,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,2,0,0.12878903131300828,0.036946254241430845,0.2373574069422455
-Trained models vs zero-shot ASR,bcresnet-2,whisper-large-v3-lenient,wav_arrayMic,7,0,1,0.21340787764381114,0.10788400468883207,0.31831859192952544
-Trained models vs zero-shot ASR,bcresnet-2,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,1,1,0.16979598844368665,0.0755324074074074,0.2712454710144928
-Trained models vs zero-shot ASR,bcresnet-3,whisper-large-v3-lenient,wav_arrayMic,7,0,1,0.20906058437867903,0.09920985060690943,0.3267291698382252
-Trained models vs zero-shot ASR,bcresnet-3,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,1,1,0.16544869517855448,0.06714739035710898,0.2805515297906602
-Trained models vs zero-shot ASR,bcresnet-8,whisper-large-v3-lenient,wav_arrayMic,8,0,0,0.2025986396974249,0.1133954358313375,0.29647995923912995
-Trained models vs zero-shot ASR,bcresnet-8,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,0,2,0.15898675049730038,0.08601902173913045,0.22778482656649615
+Trained models vs zero-shot ASR,bcresnet-1,whisper-large-v3-lenient,wav_arrayMic,7,1,0,0.17697362842077252,0.0749203868342829,0.2880303042412617
+Trained models vs zero-shot ASR,bcresnet-1,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,2,0,0.133361739220648,0.04108724971470072,0.24433786774572944
+Trained models vs zero-shot ASR,bcresnet-2,whisper-large-v3-lenient,wav_arrayMic,7,0,1,0.21435590298921503,0.10600400335254874,0.3215641390614215
+Trained models vs zero-shot ASR,bcresnet-2,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,2,0,0.17074401378909052,0.0746041472144413,0.26973110258596195
+Trained models vs zero-shot ASR,bcresnet-3,whisper-large-v3-lenient,wav_arrayMic,7,0,1,0.21047125975994263,0.10325934721714773,0.32573534909132734
+Trained models vs zero-shot ASR,bcresnet-3,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,1,1,0.1668593705598181,0.06856569545088566,0.28178542673107876
+Trained models vs zero-shot ASR,bcresnet-8,whisper-large-v3-lenient,wav_arrayMic,8,0,0,0.20205699671172817,0.1150434207499425,0.29146627703013567
+Trained models vs zero-shot ASR,bcresnet-8,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,0,2,0.15844510751160368,0.08660130718954245,0.23030501089324615
 Trained models vs zero-shot ASR,hubert-large,whisper-large-v3-lenient,wav_arrayMic,7,1,0,0.22959630148355636,0.12516372289656602,0.32614087301587297
 Trained models vs zero-shot ASR,hubert-large,parakeet-tdt-0.6b-v3-lenient,wav_arrayMic,6,2,0,0.18598441228343188,0.08520723104056438,0.2796064814814815
 Trained models vs zero-shot ASR,hubert-base,whisper-large-v3-lenient,wav_arrayMic,5,3,0,0.14838635615276705,0.034334423785617296,0.27235280797101435
@@ -22,7 +22,7 @@ Trained models vs zero-shot ASR,distilhubert-controls,parakeet-tdt-0.6b-v3-lenie
 Effect of dysarthric fine-tuning,hubert-large,hubert-large-controls,wav_arrayMic,6,0,2,0.03440499871446161,0.015707671957671962,0.05369037723785158
 Effect of dysarthric fine-tuning,hubert-base,hubert-base-controls,wav_arrayMic,6,0,2,0.07050034506556244,0.033093944099378894,0.10870906659765345
 Effect of dysarthric fine-tuning,distilhubert,distilhubert-controls,wav_arrayMic,6,0,2,0.13446342305037956,0.0643245341614907,0.2103671713250516
-Small models vs the large pretrained reference,bcresnet-1,hubert-large,wav_arrayMic,2,6,0,-0.05719538097042358,-0.10885413706545416,-0.006816383960991795
-Small models vs the large pretrained reference,bcresnet-2,hubert-large,wav_arrayMic,4,4,0,-0.016188423839745225,-0.05548495366846408,0.02022156084656085
-Small models vs the large pretrained reference,bcresnet-3,hubert-large,wav_arrayMic,3,4,1,-0.020535717104877366,-0.07190673447317734,0.03370518094516387
-Small models vs the large pretrained reference,bcresnet-8,hubert-large,wav_arrayMic,4,4,0,-0.026997661786131485,-0.07277563662340937,0.016147989993098744
+Small models vs the large pretrained reference,bcresnet-1,hubert-large,wav_arrayMic,2,6,0,-0.052622673062783856,-0.1004750064276918,-0.00016534391534389625
+Small models vs the large pretrained reference,bcresnet-2,hubert-large,wav_arrayMic,4,3,1,-0.015240398494341348,-0.05134859177165227,0.016288472413925302
+Small models vs the large pretrained reference,bcresnet-3,hubert-large,wav_arrayMic,3,4,1,-0.01912504172361376,-0.06826726342710995,0.03351466049382707
+Small models vs the large pretrained reference,bcresnet-8,hubert-large,wav_arrayMic,3,4,1,-0.0275393047718282,-0.06830497960053582,0.009617504409171085

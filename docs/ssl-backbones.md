@@ -25,12 +25,13 @@ all 8 dysarthric speakers. The gain is the paired per-speaker difference between
 - Dysarthric fine-tuning improves every backbone on 6 of 8 speakers and makes none
   worse (2 ties), and helps the smallest backbone most.
 - HuBERT-large is the most accurate model in the project. On the array microphone,
-  BC-ResNet-2 (27.8k parameters) is 1.6 points behind it [−5.5, +2.0], better on 4
-  speakers and worse on 4. On the head microphone the lead is clear: −3.8 points
-  [−7.2, −0.5], BC-ResNet-2 better on 2 speakers and worse on 5.
+  BC-ResNet-2 (27.8k parameters) is 1.5 points behind it [−5.1, +1.6], better on 4
+  speakers and worse on 3. On the head microphone the lead is larger but its interval
+  still only just includes zero: −2.6 points [−5.9, +0.2], BC-ResNet-2 better on 2
+  speakers and worse on 4.
 - On average, HuBERT-base and DistilHuBERT score below every BC-ResNet width. Speaker by
-  speaker, BC-ResNet-1's lead over them includes zero: +2.4 [−5.7, +11.4] and
-  +3.6 [−0.4, +7.4].
+  speaker, BC-ResNet-1 leads DistilHuBERT by +4.1 [+0.4, +8.0]; its lead over HuBERT-base,
+  +2.9 [−4.7, +11.2], includes zero.
 - Head microphone: 93.4% (`hubert-large`), 88.1% (`hubert-base`), 81.4% (`distilhubert`).
 
 Params and MACs count the whole model, CNN front end included (BC-ResNet's MACs

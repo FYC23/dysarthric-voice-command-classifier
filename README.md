@@ -4,11 +4,11 @@ A **323k-parameter keyword spotter** (BC-ResNet-8) recognizes 20 voice commands
 from **dysarthric speakers it never trained on** with **87% accuracy**. Zero-shot
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
 **about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
-BC-ResNet-2 (27.8k) scores 87.6%, and the smallest width, BC-ResNet-1 (9.5k), still
-reaches 83.5%. A fine-tuned **HuBERT-large** (316M) is the most accurate model
+BC-ResNet-2 (27.8k) scores 87.7%, and the smallest width, BC-ResNet-1 (9.5k), still
+reaches 84.0%. A fine-tuned **HuBERT-large** (316M) is the most accurate model
 at **89.2%**. On the array microphone, BC-ResNet-2, with **about 11,400× fewer
-parameters**, is 1.6 points behind, a difference the speaker-by-speaker comparison
-cannot tell apart from zero; on the head-mounted microphone HuBERT-large's lead is clear.
+parameters**, is 1.5 points behind, a difference the speaker-by-speaker comparison
+cannot tell apart from zero.
 
 ![Accuracy vs. model size: BC-ResNet widths, pretrained HuBERT models and zero-shot ASR](outputs/results/accuracy_vs_params.png)
 
@@ -26,39 +26,40 @@ set of commands.
 
 TORGO, 8 dysarthric speakers, each held out in turn (leave-one-speaker-out). Accuracy
 is computed per speaker and then averaged over speakers, on the array microphone,
-with a 95% bootstrap interval over speakers. BC-ResNet numbers are the mean of 2 seeds,
-± their standard deviation (a third seed is training); the pretrained HuBERT and
-DistilHuBERT models are the mean of 3 seeds.
+with a 95% bootstrap interval over speakers. Every trained model (BC-ResNet, HuBERT and
+DistilHuBERT) is the mean of 3 seeds, ± their standard deviation.
 
 | Model | Params | MACs / 2 s | Accuracy | ± seed std | 95% CI | Severe (4 speakers) | Mild (3 speakers) |
 |---|---|---|---|---|---|---|---|
 | Whisper large-v3 (zero-shot) | 1.54B | 1.3T | 66.3% | — | [53.6, 80.2] | 54.1% | 89.7% |
 | Parakeet-TDT-0.6B-v3 (zero-shot) | 627M | 16.7G | 70.6% | — | [59.0, 83.8] | 56.2% | 91.2% |
-| BC-ResNet-1 | 9.5k | 4.9M | 83.5% | 1.0 | [76.6, 90.0] | 78.2% | 90.6% |
-| BC-ResNet-2 | 27.8k | 14.6M | 87.6% | 0.8 | [82.9, 92.7] | 84.4% | 93.4% |
-| BC-ResNet-3 | 54.9k | 28.9M | 87.2% | 0.8 | [81.2, 93.7] | 83.9% | 92.9% |
-| **BC-ResNet-8** (demo) | **323k** | **171M** | **86.5%** | 2.6 | [80.8, 92.6] | 79.1% | 95.6% |
+| BC-ResNet-1 | 9.5k | 4.9M | 84.0% | 1.1 | [77.2, 90.8] | 80.0% | 91.4% |
+| BC-ResNet-2 | 27.8k | 14.6M | 87.7% | 0.6 | [83.4, 92.3] | 84.8% | 92.5% |
+| BC-ResNet-3 | 54.9k | 28.9M | 87.3% | 0.6 | [81.5, 93.8] | 84.4% | 93.2% |
+| **BC-ResNet-8** (demo) | **323k** | **171M** | **86.5%** | 1.9 | [81.0, 92.5] | 79.8% | 95.8% |
 | DistilHuBERT | 23.9M | 6.9G | 79.9% | 4.5 | [73.5, 85.9] | 75.6% | 86.3% |
 | HuBERT-base | 94.8M | 14.0G | 81.1% | 1.3 | [70.7, 89.9] | 77.9% | 90.2% |
 | HuBERT-large | 316M | 36.2G | 89.2% | 0.4 | [85.2, 93.1] | 85.5% | 95.6% |
 
 - **Speaker by speaker**, BC-ResNet-8 beats Parakeet on 6 of 8 speakers and ties on the
-  other 2 (two mild speakers at 100%). Mean gain: **+15.9 points** [+8.6, +22.8]. It
-  beats Whisper on all 8 speakers (+20.3 points).
+  other 2 (two mild speakers at 100%). Mean gain: **+15.8 points** [+8.7, +23.0]. It
+  beats Whisper on all 8 speakers (+20.2 points).
 - **The gain is largest where ASR fails:** on the four severe speakers, the four widths
-  score 78–84% against 56% for Parakeet and 54% for Whisper.
+  score 80–85% against 56% for Parakeet and 54% for Whisper.
 - **Width pays on typical speech, not on dysarthric speech.** On Speech Commands v2
-  (35 words + silence, 2 s window, before TORGO fine-tuning) accuracy rises from 95.1%
+  (35 words + silence, 2 s window, before TORGO fine-tuning) accuracy rises from 95.3%
   (BC-ResNet-1) to 98.2% (BC-ResNet-8). On TORGO, BC-ResNet-2, -3 and -8 are within
-  1.1 points of each other, less than the 3.7 points between BC-ResNet-8's two seeds.
+  1.2 points of each other, less than the 3.7 points between BC-ResNet-8's best and
+  worst seeds.
 - **HuBERT-large is the most accurate model, but not by much.** Speaker by speaker,
-  BC-ResNet-2 is 1.6 points behind it [−5.5, +2.0] and BC-ResNet-8 2.7 points
-  [−7.3, +1.6]; each is better on 4 speakers and worse on 4. Only the smallest width is
-  clearly behind: BC-ResNet-1, −5.7 points [−10.9, −0.7], worse on 6 of 8.
+  BC-ResNet-2 is 1.5 points behind it [−5.1, +1.6] (better on 4 speakers, worse on 3)
+  and BC-ResNet-8 2.8 points [−6.8, +1.0] (better on 3, worse on 4). Only the smallest
+  width is clearly behind: BC-ResNet-1, −5.3 points [−10.0, −0.02], worse on 6 of 8,
+  though its interval only just excludes zero.
 - **On average, the smaller pretrained models fall below every BC-ResNet width:**
-  HuBERT-base scores 81.1% and DistilHuBERT 79.9%, against 83.5% for BC-ResNet-1.
-  Speaker by speaker, BC-ResNet-1's lead includes zero: +2.4 points [−5.7, +11.4] over
-  HuBERT-base and +3.6 [−0.4, +7.4] over DistilHuBERT.
+  HuBERT-base scores 81.1% and DistilHuBERT 79.9%, against 84.0% for BC-ResNet-1.
+  Speaker by speaker, BC-ResNet-1 leads DistilHuBERT by +4.1 points [+0.4, +8.0]
+  (better on 6 of 8); its +2.9-point lead over HuBERT-base [−4.7, +11.2] includes zero.
 - **Dysarthric fine-tuning helps every pretrained model, most of all the smallest.**
   Trained on the 7 control speakers only, HuBERT-large already reaches 85.8%. The
   dysarthric stage then adds 3.4 points to HuBERT-large and 13.4 to DistilHuBERT, and
@@ -71,11 +72,11 @@ DistilHuBERT models are the mean of 3 seeds.
   | HuBERT-large | 85.8% | 89.2% | +3.4 | [+1.6, +5.4] |
 
 - **On the head-mounted microphone**, every BC-ResNet width still beats both ASR models:
-  87.2–91.0% (BC-ResNet-8: 89.8%), against 75.4% for Whisper and 53.3% for Parakeet.
-  HuBERT-large scores 93.4%, and here its lead over BC-ResNet-2 is clear: −3.8 points
-  [−7.2, −0.5], with BC-ResNet-2 better on 2 speakers and worse on 5. BC-ResNet-1 is
-  further behind, −6.2 [−9.5, −2.6]; the intervals for BC-ResNet-3 (−2.4 [−6.5, +1.3])
-  and BC-ResNet-8 (−3.5 [−7.8, +0.4]) include zero.
+  87.5–91.0% (BC-ResNet-8: 90.2%), against 75.4% for Whisper and 53.3% for Parakeet.
+  HuBERT-large scores 93.4%, and its lead is larger than on the array mic: BC-ResNet-2
+  is −2.6 points [−5.9, +0.2] (better on 2 speakers, worse on 4), BC-ResNet-3 −2.4
+  [−6.4, +1.3] and BC-ResNet-8 −3.1 [−6.7, +0.1], intervals that only just include
+  zero. Only BC-ResNet-1 is clearly behind, −5.8 [−9.0, −2.7].
 
 The comparison is fair to the ASR models in two ways. They hear the same 2 s clip. Each
 transcript is mapped to the nearest of the 20 commands ("lenient" scoring), so near
@@ -93,9 +94,9 @@ report in [`outputs/step1-asr/`](outputs/step1-asr/).
   anything.
 - **Small test set.** TORGO has 8 dysarthric speakers with 8–34 test clips each (array
   mic), so the intervals are wide.
-- **Few seeds.** BC-ResNet has 2 seeds so far and the pretrained models 3. One test clip
-  moves a speaker's accuracy by 3–12.5 points, so BC-ResNet's seeds differ by up to 3.7
-  points (BC-ResNet-8: 88.4% and 84.7%), and DistilHuBERT's seed standard deviation is
+- **Few seeds.** Every trained model has 3 seeds. One test clip moves a speaker's
+  accuracy by 3–12.5 points, so BC-ResNet's seeds differ by up to 3.7 points
+  (BC-ResNet-8: 88.4%, 84.7% and 86.4%), and DistilHuBERT's seed standard deviation is
   4.5 points. The differences between BC-ResNet widths 2, 3 and 8, and between them and
   HuBERT-large, are within that.
 - **Cost is counted, not measured on a device.** BC-ResNet's MACs exclude the log-Mel

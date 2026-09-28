@@ -2,10 +2,10 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | whisper-large-v3-lenient | 1 | 66.3 | — | [53.6, 80.2] | 54.1 | 44.4 | 89.7 | 95.7 | 1.5G | 1.3T | 2 | encoder padded to 30 s; greedy decode of one clip |
 | parakeet-tdt-0.6b-v3-lenient | 1 | 70.6 | — | [59.0, 83.8] | 56.2 | 66.7 | 91.2 | 92.0 | 627M | 16.7G | 2 | greedy TDT decode of one clip; multilingual, language not forced |
-| bcresnet-1 | 2 | 83.5 | 1.0 | [76.6, 90.0] | 78.2 | 83.3 | 90.6 | — | 9.5k | 4.9M | 2 | log-Mel front end not counted |
-| bcresnet-2 | 2 | 87.6 | 0.8 | [82.9, 92.7] | 84.4 | 83.3 | 93.4 | — | 27.8k | 14.6M | 2 | log-Mel front end not counted |
-| bcresnet-3 | 2 | 87.2 | 0.8 | [81.2, 93.7] | 83.9 | 83.3 | 92.9 | — | 54.9k | 28.9M | 2 | log-Mel front end not counted |
-| bcresnet-8 | 2 | 86.5 | 2.6 | [80.8, 92.6] | 79.1 | 88.9 | 95.6 | — | 323k | 171M | 2 | log-Mel front end not counted |
+| bcresnet-1 | 3 | 84.0 | 1.1 | [77.2, 90.8] | 80.0 | 77.8 | 91.4 | — | 9.5k | 4.9M | 2 | log-Mel front end not counted |
+| bcresnet-2 | 3 | 87.7 | 0.6 | [83.4, 92.3] | 84.8 | 85.2 | 92.5 | — | 27.8k | 14.6M | 2 | log-Mel front end not counted |
+| bcresnet-3 | 3 | 87.3 | 0.6 | [81.5, 93.8] | 84.4 | 81.5 | 93.2 | — | 54.9k | 28.9M | 2 | log-Mel front end not counted |
+| bcresnet-8 | 3 | 86.5 | 1.9 | [81.0, 92.5] | 79.8 | 85.2 | 95.8 | — | 323k | 171M | 2 | log-Mel front end not counted |
 | hubert-large | 3 | 89.2 | 0.4 | [85.2, 93.1] | 85.5 | 85.2 | 95.6 | — | 316M | 36.2G | 2 | MACs include the CNN front end, every transformer layer and the head |
 | hubert-base | 3 | 81.1 | 1.3 | [70.7, 89.9] | 77.9 | 66.7 | 90.2 | — | 94.8M | 14.0G | 2 | MACs include the CNN front end, every transformer layer and the head |
 | distilhubert | 3 | 79.9 | 4.5 | [73.5, 85.9] | 75.6 | 77.8 | 86.3 | — | 23.9M | 6.9G | 2 | MACs include the CNN front end, every transformer layer and the head |
