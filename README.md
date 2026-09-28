@@ -6,8 +6,9 @@ Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
 **about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
 BC-ResNet-2 (27.8k) scores 87.6%, and the smallest width, BC-ResNet-1 (9.5k), still
 reaches 83.5%. A fine-tuned **HuBERT-large** (316M) is the most accurate model
-at **89.2%**; BC-ResNet-2, with **about 11,000× fewer parameters**, is 1.6 points behind,
-a difference the speaker-by-speaker comparison cannot tell apart from zero.
+at **89.2%**. On the array microphone, BC-ResNet-2, with **about 11,400× fewer
+parameters**, is 1.6 points behind, a difference the speaker-by-speaker comparison
+cannot tell apart from zero; on the head-mounted microphone HuBERT-large's lead is clear.
 
 ![Accuracy vs. model size: BC-ResNet widths, pretrained HuBERT models and zero-shot ASR](outputs/results/accuracy_vs_params.png)
 
@@ -54,8 +55,10 @@ DistilHuBERT models are the mean of 3 seeds.
   BC-ResNet-2 is 1.6 points behind it [−5.5, +2.0] and BC-ResNet-8 2.7 points
   [−7.3, +1.6]; each is better on 4 speakers and worse on 4. Only the smallest width is
   clearly behind: BC-ResNet-1, −5.7 points [−10.9, −0.7], worse on 6 of 8.
-- **The smaller pretrained models fall below every BC-ResNet width:** HuBERT-base scores
-  81.1% and DistilHuBERT 79.9%, against 83.5% for BC-ResNet-1.
+- **On average, the smaller pretrained models fall below every BC-ResNet width:**
+  HuBERT-base scores 81.1% and DistilHuBERT 79.9%, against 83.5% for BC-ResNet-1.
+  Speaker by speaker, BC-ResNet-1's lead includes zero: +2.4 points [−5.7, +11.4] over
+  HuBERT-base and +3.6 [−0.4, +7.4] over DistilHuBERT.
 - **Dysarthric fine-tuning helps every pretrained model, most of all the smallest.**
   Trained on the 7 control speakers only, HuBERT-large already reaches 85.8%. The
   dysarthric stage then adds 3.4 points to HuBERT-large and 13.4 to DistilHuBERT, and
@@ -69,7 +72,10 @@ DistilHuBERT models are the mean of 3 seeds.
 
 - **On the head-mounted microphone**, every BC-ResNet width still beats both ASR models:
   87.2–91.0% (BC-ResNet-8: 89.8%), against 75.4% for Whisper and 53.3% for Parakeet.
-  HuBERT-large scores 93.4%.
+  HuBERT-large scores 93.4%, and here its lead over BC-ResNet-2 is clear: −3.8 points
+  [−7.2, −0.5], with BC-ResNet-2 better on 2 speakers and worse on 5. BC-ResNet-1 is
+  further behind, −6.2 [−9.5, −2.6]; the intervals for BC-ResNet-3 (−2.4 [−6.5, +1.3])
+  and BC-ResNet-8 (−3.5 [−7.8, +0.4]) include zero.
 
 The comparison is fair to the ASR models in two ways. They hear the same 2 s clip. Each
 transcript is mapped to the nearest of the 20 commands ("lenient" scoring), so near

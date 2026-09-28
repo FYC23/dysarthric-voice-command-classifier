@@ -24,9 +24,13 @@ all 8 dysarthric speakers. The gain is the paired per-speaker difference between
 
 - Dysarthric fine-tuning improves every backbone on 6 of 8 speakers and makes none
   worse (2 ties), and helps the smallest backbone most.
-- HuBERT-large is the most accurate model in the project. BC-ResNet-2 (27.8k
-  parameters) is 1.6 points behind it [−5.5, +2.0], better on 4 speakers and worse on 4.
-- HuBERT-base and DistilHuBERT score below every BC-ResNet width.
+- HuBERT-large is the most accurate model in the project. On the array microphone,
+  BC-ResNet-2 (27.8k parameters) is 1.6 points behind it [−5.5, +2.0], better on 4
+  speakers and worse on 4. On the head microphone the lead is clear: −3.8 points
+  [−7.2, −0.5], BC-ResNet-2 better on 2 speakers and worse on 5.
+- On average, HuBERT-base and DistilHuBERT score below every BC-ResNet width. Speaker by
+  speaker, BC-ResNet-1's lead over them includes zero: +2.4 [−5.7, +11.4] and
+  +3.6 [−0.4, +7.4].
 - Head microphone: 93.4% (`hubert-large`), 88.1% (`hubert-base`), 81.4% (`distilhubert`).
 
 Params and MACs count the whole model, CNN front end included (BC-ResNet's MACs
@@ -76,11 +80,14 @@ set_trainable(model, top_n=4)  # the head and the top 4 transformer layers; ever
 
 `scripts/finetune_ssl.py` downloads its backbone from Hugging Face on first use and caches it in `data/cache/pretrained/`:
 
-| Backbone | Checkpoint | Params | Layers |
+| Backbone | Checkpoint | Backbone params | Layers |
 |---|---|---|---|
 | `hubert-large` | `facebook/hubert-large-ll60k` | 315M | 24 |
 | `hubert-base` | `facebook/hubert-base-ls960` | 95M | 12 |
 | `distilhubert` | `ntu-spml/distilhubert` | 24M | 2 |
+
+These are the checkpoints' nominal sizes. The Results table counts the whole model,
+command head included.
 
 If the machine cannot reach huggingface.co, use a mirror: `export HF_ENDPOINT=https://hf-mirror.com`.
 
