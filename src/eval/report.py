@@ -75,7 +75,8 @@ def comparisons_table(comparisons: Sequence[PairedComparison]) -> pd.DataFrame:
 
 
 def _signed_pts(x: float) -> str:
-    return f"{100 * x:+.1f}"
+    """A share as signed points to 1 decimal; a value that rounds to zero is +0.0, never -0.0."""
+    return f"{round(100 * x, 1) + 0.0:+.1f}"
 
 
 def comparisons_markdown(table: pd.DataFrame) -> str:

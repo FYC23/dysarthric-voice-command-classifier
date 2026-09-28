@@ -12,8 +12,8 @@ from src.eval.plots import (
     _label_rows, plot_accuracy_vs_cost, plot_accuracy_vs_macs, plot_confusion,
 )
 from src.eval.report import (
-    comparisons_markdown, comparisons_table, human_count, per_speaker_table, results_table,
-    to_markdown, write_report,
+    _signed_pts, comparisons_markdown, comparisons_table, human_count, per_speaker_table,
+    results_table, to_markdown, write_report,
 )
 from src.eval.schema import Run
 from tests.eval.factories import ALL_DYSARTHRIC, dysarthric_preds, loso_folds, speaker_rows
@@ -186,6 +186,12 @@ def test_comparisons_markdown_shows_signed_gains_in_points():
     lines = comparisons_markdown(comparisons_table([compare(base, cand)])).strip().splitlines()
     assert len(lines) == 3
     assert "| bcresnet1 | whisper | 8 of 8 | 0 | 0 | +20.0 |" in lines[2]
+
+
+@pytest.mark.parametrize("x, text", [(-0.0004, "+0.0"), (-0.0, "+0.0"), (0.0, "+0.0"),
+                                     (-0.0006, "-0.1"), (0.227, "+22.7")])
+def test_signed_points_never_print_negative_zero(x, text):
+    assert _signed_pts(x) == text
 
 
 def test_a_model_with_zero_cost_does_not_break_the_log_axis_figure(tmp_path):

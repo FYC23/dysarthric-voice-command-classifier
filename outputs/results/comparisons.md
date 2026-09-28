@@ -13,7 +13,7 @@
 | hubert-large | whisper-large-v3-lenient | 7 of 8 | 1 | 0 | +23.0 | [+12.5, +32.6] |
 | hubert-large | parakeet-tdt-0.6b-v3-lenient | 6 of 8 | 2 | 0 | +18.6 | [+8.5, +28.0] |
 | hubert-base | whisper-large-v3-lenient | 5 of 8 | 3 | 0 | +14.8 | [+3.4, +27.2] |
-| hubert-base | parakeet-tdt-0.6b-v3-lenient | 4 of 8 | 3 | 1 | +10.5 | [-0.0, +22.7] |
+| hubert-base | parakeet-tdt-0.6b-v3-lenient | 4 of 8 | 3 | 1 | +10.5 | [+0.0, +22.7] |
 | distilhubert | whisper-large-v3-lenient | 6 of 8 | 2 | 0 | +13.6 | [+2.6, +25.3] |
 | distilhubert | parakeet-tdt-0.6b-v3-lenient | 6 of 8 | 2 | 0 | +9.2 | [-0.6, +20.6] |
 | hubert-large-controls | whisper-large-v3-lenient | 6 of 8 | 1 | 1 | +19.5 | [+10.2, +28.5] |
