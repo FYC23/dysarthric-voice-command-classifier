@@ -3,12 +3,12 @@
 A **28k-parameter keyword spotter** (BC-ResNet-2) recognizes 20 voice commands
 from **dysarthric speakers it never trained on** with **88% accuracy**. Zero-shot
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
-**about 22,500× more parameters**. Beyond about 28k parameters, width stops helping:
-BC-ResNet-8, 12× larger (323k), scores 86.5%, and the smallest width, BC-ResNet-1
-(9.5k), still reaches 84.0%. A fine-tuned **HuBERT-large** (316M) is the most accurate
-model at **89.2%**. On the array microphone, BC-ResNet-2, with **about 11,400× fewer
-parameters**, is 1.5 points behind, a difference the speaker-by-speaker comparison
-cannot tell apart from zero.
+**about 22,500× more parameters**. On TORGO, widths beyond about 28k parameters give
+no clear gain in average accuracy: BC-ResNet-8, 12× larger (323k), scores 86.5%, and
+the smallest width, BC-ResNet-1 (9.5k), still reaches 84.0%. A fine-tuned
+**HuBERT-large** (316M) is the most accurate model at **89.2%**. On the array
+microphone, BC-ResNet-2, with **about 11,400× fewer parameters**, is 1.5 points
+behind, a difference the speaker-by-speaker comparison cannot tell apart from zero.
 
 ![Accuracy vs. model size: BC-ResNet widths, pretrained HuBERT models and zero-shot ASR](outputs/results/accuracy_vs_params.png)
 
@@ -52,7 +52,8 @@ DistilHuBERT) is the mean of 3 seeds, ± their standard deviation.
   (BC-ResNet-1) to 98.2% (BC-ResNet-8). On TORGO, BC-ResNet-2, -3 and -8 are within
   1.2 points of each other, less than the 3.7 points between BC-ResNet-8's best and
   worst seeds. Speaker by speaker, BC-ResNet-2 is +1.2 points [−1.7, +4.4] ahead of
-  BC-ResNet-8 (better on 4 speakers, worse on 3): equal accuracy at 1/12 the size.
+  BC-ResNet-8 (better on 4 speakers, worse on 3): similar observed accuracy at roughly
+  1/12 the parameter count.
 - **What width does buy is robustness on easy speakers and unseen words.** BC-ResNet-8
   never trails Parakeet (better on 6 speakers, tied on 2 mild speakers at 100%, a
   +15.8-point mean gain [+8.7, +23.0]). It beats BC-ResNet-2 on the 3 mild speakers
@@ -174,9 +175,12 @@ flowchart LR
    perturbations Geng et al. compared on disordered speech), a random position in the
    2 s window (the word is never cut), background noise at 5–20 dB SNR, ±6 dB gain,
    and SpecAugment on the log-Mel features.
-5. **Fix everything in advance.** All hyperparameters are set before any held-out
-   result is seen (`src/training/bcresnet_recipe.py`), and stages 2–3 keep their last
-   epoch. There is no dysarthric development set, so nothing is selected on test data.
+5. **Fix training in advance.** Training hyperparameters and checkpoint selection are
+   fixed before any held-out result is seen (`src/training/bcresnet_recipe.py`): stages
+   2–3 keep their last epoch, and there is no dysarthric development set. BC-ResNet-2
+   was chosen for the demo after comparing the complete width sweep, so its 87.7% is
+   the best of four widths and slightly optimistic, though BC-ResNet-2, -3 and -8 are
+   within 1.2 points of each other.
 
 ### Pretrained speech models (reference)
 
