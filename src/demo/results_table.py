@@ -1,6 +1,6 @@
 """
 The numbers the demo shows, read from the harness's combined report
-(outputs/step3-bcresnet/results.csv), so nothing on the page is typed by hand.
+(outputs/results/results.csv), so nothing on the page is typed by hand.
 csv module only: the Space does not install pandas.
 """
 
@@ -14,7 +14,7 @@ from src.config import Config
 from src.eval.constants import HEADLINE_MIC
 from src.eval.units import human_count
 
-RESULTS_CSV = Config.OUTPUT_DIR / "step3-bcresnet" / "results.csv"
+RESULTS_CSV = Config.OUTPUT_DIR / "results" / "results.csv"
 KWS_RUN = "bcresnet-8"
 ASR_RUN = "parakeet-tdt-0.6b-v3-lenient"
 # (run name in results.csv, name on the page), in table order

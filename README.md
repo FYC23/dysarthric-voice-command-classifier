@@ -5,9 +5,11 @@ from **dysarthric speakers it never trained on** with **87% accuracy**. Zero-sho
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
 **about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
 BC-ResNet-2 (27.8k) scores 87.6%, and the smallest width, BC-ResNet-1 (9.5k), still
-reaches 83.5%.
+reaches 83.5%. A leak-free fine-tuned **HuBERT-large** (316M) is the most accurate model
+at **89.2%**; BC-ResNet-2, with **about 11,000× fewer parameters**, is 1.6 points behind,
+a difference the speaker-by-speaker comparison cannot tell apart from zero.
 
-![Accuracy vs. model size](outputs/step3-bcresnet/accuracy_vs_params.png)
+![Accuracy vs. model size: BC-ResNet widths, pretrained HuBERT models and zero-shot ASR](outputs/results/accuracy_vs_params.png)
 
 ## Why
 
@@ -24,7 +26,8 @@ set of commands.
 TORGO, 8 dysarthric speakers, each held out in turn (leave-one-speaker-out). Accuracy
 is computed per speaker and then averaged over speakers, on the array microphone,
 with a 95% bootstrap interval over speakers. BC-ResNet numbers are the mean of 2 seeds,
-± their standard deviation; a third seed is training.
+± their standard deviation (a third seed is training); the pretrained HuBERT and
+DistilHuBERT models are the mean of 3 seeds.
 
 | Model | Params | MACs / 2 s | Accuracy | ± seed std | 95% CI | Severe (4 speakers) | Mild (3 speakers) |
 |---|---|---|---|---|---|---|---|
@@ -34,6 +37,9 @@ with a 95% bootstrap interval over speakers. BC-ResNet numbers are the mean of 2
 | BC-ResNet-2 | 27.8k | 14.6M | 87.6% | 0.8 | [82.9, 92.7] | 84.4% | 93.4% |
 | BC-ResNet-3 | 54.9k | 28.9M | 87.2% | 0.8 | [81.2, 93.7] | 83.9% | 92.9% |
 | **BC-ResNet-8** (demo) | **323k** | **171M** | **86.5%** | 2.6 | [80.8, 92.6] | 79.1% | 95.6% |
+| DistilHuBERT | 23.9M | 6.9G | 79.9% | 4.5 | [73.5, 85.9] | 75.6% | 86.3% |
+| HuBERT-base | 94.8M | 14.0G | 81.1% | 1.3 | [70.7, 89.9] | 77.9% | 90.2% |
+| HuBERT-large | 316M | 36.2G | 89.2% | 0.4 | [85.2, 93.1] | 85.5% | 95.6% |
 
 - **Speaker by speaker**, BC-ResNet-8 beats Parakeet on 6 of 8 speakers and ties on the
   other 2 (two mild speakers at 100%). Mean gain: **+15.9 points** [+8.6, +22.8]. It
@@ -44,17 +50,35 @@ with a 95% bootstrap interval over speakers. BC-ResNet numbers are the mean of 2
   (35 words + silence, 2 s window, before TORGO fine-tuning) accuracy rises from 95.1%
   (BC-ResNet-1) to 98.2% (BC-ResNet-8). On TORGO, BC-ResNet-2, -3 and -8 are within
   1.1 points of each other, less than the 3.7 points between BC-ResNet-8's two seeds.
-- **On the head-mounted microphone**, every width still leads: 87.2–91.0% (BC-ResNet-8:
-  89.8%), against 75.4% for Whisper and 53.3% for Parakeet.
+- **HuBERT-large is the most accurate model, but not by much.** Speaker by speaker,
+  BC-ResNet-2 is 1.6 points behind it [−5.5, +2.0] and BC-ResNet-8 2.7 points
+  [−7.3, +1.6]; each is better on 4 speakers and worse on 4. Only the smallest width is
+  clearly behind: BC-ResNet-1, −5.7 points [−10.9, −0.7], worse on 6 of 8.
+- **The smaller pretrained models fall below every BC-ResNet width:** HuBERT-base scores
+  81.1% and DistilHuBERT 79.9%, against 83.5% for BC-ResNet-1.
+- **Dysarthric fine-tuning helps every pretrained model, most of all the smallest.**
+  Trained on the 7 control speakers only, HuBERT-large already reaches 85.8%. The
+  dysarthric stage then adds 3.4 points to HuBERT-large and 13.4 to DistilHuBERT, and
+  each backbone improves on 6 of 8 speakers and gets worse on none:
+
+  | Backbone | Controls only | + dysarthric fine-tuning | Gain (pts) | 95% CI |
+  |---|---|---|---|---|
+  | DistilHuBERT | 66.4% | 79.9% | +13.4 | [+6.4, +21.0] |
+  | HuBERT-base | 74.1% | 81.1% | +7.1 | [+3.3, +10.9] |
+  | HuBERT-large | 85.8% | 89.2% | +3.4 | [+1.6, +5.4] |
+
+- **On the head-mounted microphone**, every BC-ResNet width still beats both ASR models:
+  87.2–91.0% (BC-ResNet-8: 89.8%), against 75.4% for Whisper and 53.3% for Parakeet.
+  HuBERT-large scores 93.4%.
 
 The comparison is fair to the ASR models in two ways. They hear the same 2 s clip. Each
 transcript is mapped to the nearest of the 20 commands ("lenient" scoring), so near
 misses like "for" → "four" count as correct. Their strict scores (the transcript must be
 exactly the word) are lower: 50.3% and 53.9%.
 
-Full tables, per-speaker results and confusion matrices:
-[`outputs/step3-bcresnet/`](outputs/step3-bcresnet/) (head mic in its `head-mic/`
-subfolder); ASR-only report in [`outputs/step1-asr/`](outputs/step1-asr/).
+Full tables, per-speaker results, confusion matrices and every paired comparison:
+[`outputs/results/`](outputs/results/) (head mic in its `head-mic/` subfolder); ASR-only
+report in [`outputs/step1-asr/`](outputs/step1-asr/).
 
 ### Limitations
 
@@ -63,12 +87,19 @@ subfolder); ASR-only report in [`outputs/step1-asr/`](outputs/step1-asr/).
   anything.
 - **Small test set.** TORGO has 8 dysarthric speakers with 8–34 test clips each (array
   mic), so the intervals are wide.
-- **Two seeds so far.** One test clip moves a speaker's accuracy by 3–12.5 points, so
-  seeds differ by up to 3.7 points (BC-ResNet-8: 88.4% and 84.7%). The differences
-  between widths 2, 3 and 8 are smaller than that.
-- **Cost is counted, not measured on a device.** MACs exclude the log-Mel front end,
-  and Whisper's count includes the padding its encoder needs to reach 30 s. No model
-  has been run on a phone or microcontroller yet.
+- **Few seeds.** BC-ResNet has 2 seeds so far and the pretrained models 3. One test clip
+  moves a speaker's accuracy by 3–12.5 points, so BC-ResNet's seeds differ by up to 3.7
+  points (BC-ResNet-8: 88.4% and 84.7%), and DistilHuBERT's seed standard deviation is
+  4.5 points. The differences between BC-ResNet widths 2, 3 and 8, and between them and
+  HuBERT-large, are within that.
+- **Cost is counted, not measured on a device.** BC-ResNet's MACs exclude the log-Mel
+  front end, while HuBERT's include the CNN front end that plays the same role on the raw
+  waveform, so the two counts are not like for like. Whisper's count includes the padding
+  its encoder needs to reach 30 s. No model has been run on a phone or microcontroller
+  yet.
+- **HuBERT is a reference, not an edge model.** At 316M parameters and 36.2G MACs per
+  2 s window, HuBERT-large is here to show how close a small model gets to a large
+  pretrained one, not as a model for a phone or microcontroller.
 - **The ASR models are not fine-tuned.** They show what an off-the-shelf system gives a
   dysarthric user, not how well a large model could do with adaptation.
 
@@ -132,13 +163,30 @@ flowchart LR
    result is seen (`src/training/bcresnet_recipe.py`), and stages 2–3 keep their last
    epoch. There is no dysarthric development set, so nothing is selected on test data.
 
+### Pretrained speech models (reference)
+
+HuBERT-large, HuBERT-base and DistilHuBERT are self-supervised speech models (pretrained
+on unlabeled audio, never fine-tuned for ASR). Each gets a small command head: a learned
+weighted sum of all its layers, attention pooling over time and an MLP. Only the head and
+the top min(4, layers) transformer layers train (4 of 24, 4 of 12, 2 of 2). The TORGO
+stages have the same structure as BC-ResNet's (a control stage on the 7 control speakers,
+then 8 leave-one-speaker-out folds that each start from it), with no Speech Commands stage.
+The recipe is fixed in advance and the same for every backbone
+(`src/training/ssl_recipe.py`), and the last epoch is kept. The control-stage model is
+also scored on all 8 dysarthric speakers ("controls only"), to measure what the
+dysarthric stage adds. Details: [docs/ssl-backbones.md](docs/ssl-backbones.md).
+
 ### How the evaluation was fixed
 
 An earlier version of this project fine-tuned HuBERT-large and reported 87% accuracy
 leave-one-speaker-out. A review of that pipeline found two leaks: every fold started
 from a model that had already trained on the held-out speaker, and each fold picked
 its best epoch on that speaker's test clips. The number did not measure generalization
-to new speakers, so it was withdrawn and its outputs deleted.
+to new speakers, so it was withdrawn and its outputs deleted. The leak-free HuBERT-large
+above scores 89.2%, but it is not a corrected version of that model: it starts from a
+different checkpoint (the self-supervised `hubert-large-ll60k`, not the ASR-fine-tuned
+`hubert-large-ls960-ft`) and uses a different recipe, so the two numbers say nothing about
+what the leaks were worth.
 
 The evaluation was rebuilt as a shared harness (`src/eval/`) that every model now goes
 through:
@@ -150,7 +198,7 @@ through:
 - Confidence intervals are bootstrapped over speakers.
 - Models are compared speaker by speaker.
 
-The BC-ResNet results above are the first trained-model results from that harness.
+The BC-ResNet and HuBERT results above all come from that harness.
 
 ## Supported commands
 
@@ -221,19 +269,36 @@ Outputs go to `runs/bcresnet-<τ>/seed<k>/`: the stage checkpoints (`pretrain.pt
 `controls.pt`, `fold<i>_<speaker>.pt`, `deploy.pt`) and the eval-harness run in `eval/`.
 Parameter and MAC counts are in `runs/bcresnet-<τ>/cost.json`.
 
-### Step 3: combined report
+### Step 3: pretrained speech models (reference)
+
+One run per backbone and seed: the control stage, the controls-only evaluation, then the
+8 leave-one-speaker-out folds. It needs a GPU (`hubert-large` takes hours per seed), and
+each backbone downloads from Hugging Face on first use.
 
 ```bash
-python scripts/report_results.py                # every finished seed; --seeds 0 1 to pin them
+python scripts/finetune_ssl.py --backbone hubert-large --seed 0   # add --resume after a crash
+bash scripts/train_ssl_all.sh                                     # every backbone x seeds 0-2
+BACKBONES="distilhubert" SEEDS="0" DEVICE=cuda:0 bash scripts/train_ssl_all.sh
 ```
 
-Writes the tables, speaker-by-speaker comparisons and figures to
-`outputs/step3-bcresnet/`.
+The all-script skips finished seeds and resumes unfinished ones; run it inside `tmux` or
+with `nohup`. Outputs go to `runs/<backbone>/seed<k>/` (leave-one-speaker-out) and
+`runs/<backbone>-controls/seed<k>/` (controls only); parameter and MAC counts are in
+`runs/<backbone>/cost.json`. Checkpoint
+sizes, disk space and the resume rules: [docs/ssl-backbones.md](docs/ssl-backbones.md).
 
-### Pretrained speech models
+### Step 4: combined report
 
-A HuBERT / DistilHuBERT classifier with the same TORGO stages is implemented as an
-accuracy reference but not yet trained. See [docs/ssl-backbones.md](docs/ssl-backbones.md).
+```bash
+python scripts/report_results.py                # every finished seed; --seeds 0 1 pins BC-ResNet's
+```
+
+Covers every model (the ASR baselines, the BC-ResNet widths, the three pretrained models
+and their controls-only runs) and writes the tables, figures and speaker-by-speaker
+comparisons to `outputs/results/`. The comparisons answer three questions: trained models
+vs zero-shot ASR, the effect of dysarthric fine-tuning, and BC-ResNet vs HuBERT-large.
+`--backbones` picks the pretrained models (default: all three), which always use every
+finished seed.
 
 ## Project structure
 
@@ -257,7 +322,7 @@ dysarthric-voice-command-classifier/
 ├── docs/                      # SSL reference model and the demo GIF
 ├── data/                      # Gitignored except README and labels: datasets and caches
 ├── runs/                      # Gitignored: checkpoints and eval runs
-├── outputs/                   # Results tables and figures
+├── outputs/                   # Tables and figures: results/ (every model), step1-asr/
 └── tests/
 ```
 

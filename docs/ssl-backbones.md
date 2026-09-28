@@ -5,8 +5,32 @@ self-supervised speech model (HuBERT-large, HuBERT-base or DistilHuBERT) with a 
 command head, trained with the same TORGO stages and evaluated leave-one-speaker-out
 through the same harness.
 
-**Status:** implemented and tested, not yet trained. No results are reported for it.
-The headline results in the [README](../README.md) are BC-ResNet against zero-shot ASR.
+**Status:** trained, 3 seeds per backbone. The [README](../README.md) puts these results
+next to BC-ResNet and zero-shot ASR; full tables, figures and paired comparisons are in
+[`outputs/results/`](../outputs/results/).
+
+## Results
+
+TORGO array microphone, accuracy per speaker averaged over the 8 dysarthric speakers,
+mean of 3 seeds, with a 95% bootstrap interval over speakers. "Controls only" is the
+control-stage model (trained on the 7 control speakers, no dysarthric speech) scored on
+all 8 dysarthric speakers. The gain is the paired per-speaker difference between the two.
+
+| Backbone | Params | Leave-one-speaker-out | Controls only | Fine-tuning gain (pts) |
+|---|---|---|---|---|
+| `hubert-large` | 316M | 89.2% [85.2, 93.1] | 85.8% [81.1, 90.7] | +3.4 [+1.6, +5.4] |
+| `hubert-base` | 94.8M | 81.1% [70.7, 89.9] | 74.1% [63.1, 84.5] | +7.1 [+3.3, +10.9] |
+| `distilhubert` | 23.9M | 79.9% [73.5, 85.9] | 66.4% [56.6, 76.5] | +13.4 [+6.4, +21.0] |
+
+- Dysarthric fine-tuning improves every backbone on 6 of 8 speakers and makes none
+  worse (2 ties), and helps the smallest backbone most.
+- HuBERT-large is the most accurate model in the project. BC-ResNet-2 (27.8k
+  parameters) is 1.6 points behind it [−5.5, +2.0], better on 4 speakers and worse on 4.
+- HuBERT-base and DistilHuBERT score below every BC-ResNet width.
+- Head microphone: 93.4% (`hubert-large`), 88.1% (`hubert-base`), 81.4% (`distilhubert`).
+
+Params and MACs count the whole model, CNN front end included (BC-ResNet's MACs
+exclude its log-Mel front end).
 
 ## Architecture
 

@@ -1,0 +1,28 @@
+question,candidate,baseline,mic,n_better,n_worse,n_tied,mean_diff,ci_low,ci_high
+Trained models vs zero-shot ASR,bcresnet-1,whisper-large-v3-lenient,wav_headMic,6,2,0,0.11765521825451386,0.03901978354065637,0.20304640878090366
+Trained models vs zero-shot ASR,bcresnet-1,parakeet-tdt-0.6b-v3-lenient,wav_headMic,8,0,0,0.33819361847512885,0.20910981383797483,0.4666298138733052
+Trained models vs zero-shot ASR,bcresnet-2,whisper-large-v3-lenient,wav_headMic,7,1,0,0.14178989842391682,0.06710027573051973,0.22263293904518328
+Trained models vs zero-shot ASR,bcresnet-2,parakeet-tdt-0.6b-v3-lenient,wav_headMic,8,0,0,0.3623282986445318,0.21632344060812725,0.5171802112982288
+Trained models vs zero-shot ASR,bcresnet-3,whisper-large-v3-lenient,wav_headMic,7,0,1,0.15560313711739954,0.0900846348795479,0.22438301166364158
+Trained models vs zero-shot ASR,bcresnet-3,parakeet-tdt-0.6b-v3-lenient,wav_headMic,8,0,0,0.37614153733801453,0.23513471511793127,0.5279031599198817
+Trained models vs zero-shot ASR,bcresnet-8,whisper-large-v3-lenient,wav_headMic,7,0,1,0.14424844622280888,0.07892097564832384,0.21179847991089842
+Trained models vs zero-shot ASR,bcresnet-8,parakeet-tdt-0.6b-v3-lenient,wav_headMic,8,0,0,0.36478684644342385,0.23479681727763568,0.5015234407227127
+Trained models vs zero-shot ASR,hubert-large,whisper-large-v3-lenient,wav_headMic,7,1,0,0.1796457670648125,0.08529297274855084,0.280852448316283
+Trained models vs zero-shot ASR,hubert-large,parakeet-tdt-0.6b-v3-lenient,wav_headMic,7,0,1,0.4001841672854275,0.2490689024557931,0.5491405240216704
+Trained models vs zero-shot ASR,hubert-base,whisper-large-v3-lenient,wav_headMic,6,2,0,0.12697529527368576,0.046914180546770594,0.20796035805626598
+Trained models vs zero-shot ASR,hubert-base,parakeet-tdt-0.6b-v3-lenient,wav_headMic,7,1,0,0.3475136954943008,0.20360582236115057,0.48854166666666665
+Trained models vs zero-shot ASR,distilhubert,whisper-large-v3-lenient,wav_headMic,6,2,0,0.0603300783458155,-0.009741960740389367,0.13176277440323955
+Trained models vs zero-shot ASR,distilhubert,parakeet-tdt-0.6b-v3-lenient,wav_headMic,7,1,0,0.2808684785664305,0.15906507530548453,0.4056438435589289
+Trained models vs zero-shot ASR,hubert-large-controls,whisper-large-v3-lenient,wav_headMic,6,1,1,0.12766420779261783,0.044221584316093555,0.21488082551861318
+Trained models vs zero-shot ASR,hubert-large-controls,parakeet-tdt-0.6b-v3-lenient,wav_headMic,7,1,0,0.34820260801323283,0.2064484514619052,0.4877269362630513
+Trained models vs zero-shot ASR,hubert-base-controls,whisper-large-v3-lenient,wav_headMic,6,2,0,0.05355952988436552,-0.01568267143749094,0.1163372051719238
+Trained models vs zero-shot ASR,hubert-base-controls,parakeet-tdt-0.6b-v3-lenient,wav_headMic,8,0,0,0.2740979301049805,0.16382604304805662,0.38461487079930134
+Trained models vs zero-shot ASR,distilhubert-controls,whisper-large-v3-lenient,wav_headMic,3,3,2,-0.027477993885726387,-0.09367917193759225,0.0337009803921568
+Trained models vs zero-shot ASR,distilhubert-controls,parakeet-tdt-0.6b-v3-lenient,wav_headMic,7,1,0,0.19306040633488858,0.08891967414985313,0.29628202087286526
+Effect of dysarthric fine-tuning,hubert-large,hubert-large-controls,wav_headMic,6,1,1,0.051981559272194666,0.022147898511256415,0.0835024103662555
+Effect of dysarthric fine-tuning,hubert-base,hubert-base-controls,wav_headMic,6,1,1,0.07341576538932024,0.029605093248275365,0.11766481955100888
+Effect of dysarthric fine-tuning,distilhubert,distilhubert-controls,wav_headMic,7,0,1,0.08780807223154188,0.04012266742445782,0.13852508043890766
+Small models vs the large pretrained reference,bcresnet-1,hubert-large,wav_headMic,1,6,1,-0.06199054881029864,-0.09505627285977505,-0.026007625272331178
+Small models vs the large pretrained reference,bcresnet-2,hubert-large,wav_headMic,2,5,1,-0.03785586864089567,-0.07237814660888507,-0.005261915108688045
+Small models vs the large pretrained reference,bcresnet-3,hubert-large,wav_headMic,2,4,2,-0.024042629947412963,-0.0646238869944113,0.013258574038934564
+Small models vs the large pretrained reference,bcresnet-8,hubert-large,wav_headMic,2,5,1,-0.035397320842003616,-0.07774951100706762,0.004086065429756133

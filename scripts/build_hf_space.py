@@ -55,7 +55,7 @@ BUNDLE_FILES = (
     "src/demo/handler.py",
     "src/demo/kws.py",
     "src/demo/results_table.py",
-    "outputs/step3-bcresnet/results.csv",
+    "outputs/results/results.csv",
 )
 # Pinned to what the demo was tested with here. Gradio comes from sdk_version.
 # librosa: transformers' ParakeetFeatureExtractor imports it.
