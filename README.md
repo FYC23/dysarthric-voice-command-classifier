@@ -1,10 +1,11 @@
 # Dysarthric Voice Command Classifier
 
 A **323k-parameter keyword spotter** (BC-ResNet-8) recognizes 20 voice commands
-from **dysarthric speakers it never trained on** with **88% accuracy**. Zero-shot
+from **dysarthric speakers it never trained on** with **87% accuracy**. Zero-shot
 Parakeet-TDT-0.6B scores 71% and Whisper large-v3 scores 66%, and Parakeet has
-**about 1,900× more parameters**. The smallest width, BC-ResNet-1, has 9.5k
-parameters and still reaches 84%.
+**about 1,900× more parameters**. Beyond about 28k parameters, width stops helping:
+BC-ResNet-2 (27.8k) scores 87.6%, and the smallest width, BC-ResNet-1 (9.5k), still
+reaches 83.5%.
 
 ![Accuracy vs. model size](outputs/step3-bcresnet/accuracy_vs_params.png)
 
@@ -22,26 +23,29 @@ set of commands.
 
 TORGO, 8 dysarthric speakers, each held out in turn (leave-one-speaker-out). Accuracy
 is computed per speaker and then averaged over speakers, on the array microphone,
-with a 95% bootstrap interval over speakers. BC-ResNet numbers are seed 0; more seeds
-are training.
+with a 95% bootstrap interval over speakers. BC-ResNet numbers are the mean of 2 seeds,
+± their standard deviation; a third seed is training.
 
-| Model | Params | MACs / 2 s | Accuracy | 95% CI | Severe (4 speakers) | Mild (3 speakers) |
-|---|---|---|---|---|---|---|
-| Whisper large-v3 (zero-shot) | 1.54B | 1.3T | 66.3% | [53.6, 80.2] | 54.1% | 89.7% |
-| Parakeet-TDT-0.6B-v3 (zero-shot) | 627M | 16.7G | 70.6% | [59.0, 83.8] | 56.2% | 91.2% |
-| BC-ResNet-1 | 9.5k | 4.9M | 84.2% | [76.9, 91.8] | 80.3% | 91.7% |
-| BC-ResNet-2 | 27.8k | 14.6M | 87.1% | [82.3, 92.2] | 82.2% | 92.9% |
-| BC-ResNet-3 | 54.9k | 28.9M | 87.7% | [81.2, 94.2] | 84.3% | 91.9% |
-| **BC-ResNet-8** | **323k** | **171M** | **88.4%** | [81.9, 95.1] | 81.2% | 94.1% |
+| Model | Params | MACs / 2 s | Accuracy | ± seed std | 95% CI | Severe (4 speakers) | Mild (3 speakers) |
+|---|---|---|---|---|---|---|---|
+| Whisper large-v3 (zero-shot) | 1.54B | 1.3T | 66.3% | — | [53.6, 80.2] | 54.1% | 89.7% |
+| Parakeet-TDT-0.6B-v3 (zero-shot) | 627M | 16.7G | 70.6% | — | [59.0, 83.8] | 56.2% | 91.2% |
+| BC-ResNet-1 | 9.5k | 4.9M | 83.5% | 1.0 | [76.6, 90.0] | 78.2% | 90.6% |
+| BC-ResNet-2 | 27.8k | 14.6M | 87.6% | 0.8 | [82.9, 92.7] | 84.4% | 93.4% |
+| BC-ResNet-3 | 54.9k | 28.9M | 87.2% | 0.8 | [81.2, 93.7] | 83.9% | 92.9% |
+| **BC-ResNet-8** (demo) | **323k** | **171M** | **86.5%** | 2.6 | [80.8, 92.6] | 79.1% | 95.6% |
 
 - **Speaker by speaker**, BC-ResNet-8 beats Parakeet on 6 of 8 speakers and ties on the
-  other 2 (two mild speakers at 100%). Mean gain: **+17.8 points** [+8.8, +26.9]. It
-  beats Whisper on all 8 speakers (+22.1 points).
-- **The gain is largest where ASR fails:** on the four severe speakers, 81% against 56%.
-- **On the head-mounted microphone**, BC-ResNet-8 still leads at 92.4%, against 75.4% for
-  Whisper and 53.3% for Parakeet.
-- **On typical speech** (Speech Commands v2, 35 words + silence, 2 s window) the same
-  models score 95.1% (BC-ResNet-1) to 98.1% (BC-ResNet-8) before TORGO fine-tuning.
+  other 2 (two mild speakers at 100%). Mean gain: **+15.9 points** [+8.6, +22.8]. It
+  beats Whisper on all 8 speakers (+20.3 points).
+- **The gain is largest where ASR fails:** on the four severe speakers, the four widths
+  score 78–84% against 56% for Parakeet and 54% for Whisper.
+- **Width pays on typical speech, not on dysarthric speech.** On Speech Commands v2
+  (35 words + silence, 2 s window, before TORGO fine-tuning) accuracy rises from 95.1%
+  (BC-ResNet-1) to 98.2% (BC-ResNet-8). On TORGO, BC-ResNet-2, -3 and -8 are within
+  1.1 points of each other, less than the 3.7 points between BC-ResNet-8's two seeds.
+- **On the head-mounted microphone**, every width still leads: 87.2–91.0% (BC-ResNet-8:
+  89.8%), against 75.4% for Whisper and 53.3% for Parakeet.
 
 The comparison is fair to the ASR models in two ways. They hear the same 2 s clip. Each
 transcript is mapped to the nearest of the 20 commands ("lenient" scoring), so near
@@ -59,7 +63,9 @@ subfolder); ASR-only report in [`outputs/step1-asr/`](outputs/step1-asr/).
   anything.
 - **Small test set.** TORGO has 8 dysarthric speakers with 8–34 test clips each (array
   mic), so the intervals are wide.
-- **One seed so far.** Seed-to-seed variation is not yet measured.
+- **Two seeds so far.** One test clip moves a speaker's accuracy by 3–12.5 points, so
+  seeds differ by up to 3.7 points (BC-ResNet-8: 88.4% and 84.7%). The differences
+  between widths 2, 3 and 8 are smaller than that.
 - **Cost is counted, not measured on a device.** MACs exclude the log-Mel front end,
   and Whisper's count includes the padding its encoder needs to reach 30 s. No model
   has been run on a phone or microcontroller yet.
@@ -144,7 +150,7 @@ through:
 - Confidence intervals are bootstrapped over speakers.
 - Models are compared speaker by speaker.
 
-The 88% above is the first trained-model result from that harness.
+The BC-ResNet results above are the first trained-model results from that harness.
 
 ## Supported commands
 
